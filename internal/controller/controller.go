@@ -1,9 +1,12 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
+	"io"
 
 	"github.com/hanw39/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/opml"
 	"github.com/hanw39/blogwatcher/internal/storage"
 )
 
@@ -159,6 +162,30 @@ func MarkAllArticlesRead(db *storage.Database, blogName string) ([]model.Article
 	}
 
 	return articles, nil
+}
+
+func ImportOPML(db *storage.Database, r io.Reader) (added int, skipped int, err error) {
+	feeds, err := opml.Parse(r)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, feed := range feeds {
+		siteURL := feed.SiteURL
+		if siteURL == "" {
+			siteURL = feed.FeedURL
+		}
+		_, err := AddBlog(db, feed.Title, siteURL, feed.FeedURL, "", "")
+		if err != nil {
+			var alreadyExists BlogAlreadyExistsError
+			if errors.As(err, &alreadyExists) {
+				skipped++
+				continue
+			}
+			return added, skipped, err
+		}
+		added++
+	}
+	return added, skipped, nil
 }
 
 func MarkArticleUnread(db *storage.Database, articleID int64) (model.Article, error) {
