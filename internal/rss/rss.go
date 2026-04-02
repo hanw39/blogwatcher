@@ -71,6 +71,12 @@ func DiscoverFeedURL(blogURL string, timeout time.Duration) (string, error) {
 		return "", nil
 	}
 
+	contentType := response.Header.Get("Content-Type")
+	// If the URL already returns a feed content-type, return it directly
+	if strings.Contains(contentType, "rss") || strings.Contains(contentType, "atom") || strings.Contains(contentType, "xml") {
+		return blogURL, nil
+	}
+
 	base, err := url.Parse(blogURL)
 	if err != nil {
 		return "", nil
@@ -91,6 +97,10 @@ func DiscoverFeedURL(blogURL string, timeout time.Duration) (string, error) {
 
 	for _, feedType := range feedTypes {
 		selection := doc.Find(fmt.Sprintf("link[rel='alternate'][type='%s']", feedType)).First()
+		if selection.Length() == 0 {
+			// Also check rel="self" for feeds that use self-referencing links (e.g. TechCrunch tag feeds)
+			selection = doc.Find(fmt.Sprintf("link[rel='self'][type='%s']", feedType)).First()
+		}
 		if selection.Length() == 0 {
 			continue
 		}
