@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Hyaxia/blogwatcher/internal/model"
-	"github.com/Hyaxia/blogwatcher/internal/rss"
-	"github.com/Hyaxia/blogwatcher/internal/scraper"
-	"github.com/Hyaxia/blogwatcher/internal/storage"
+	"github.com/hanw39/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/rss"
+	"github.com/hanw39/blogwatcher/internal/scraper"
+	"github.com/hanw39/blogwatcher/internal/storage"
 )
 
 type ScanResult struct {
@@ -19,6 +19,7 @@ type ScanResult struct {
 }
 
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
+	// var (...) declaring variables in batches
 	var (
 		articles []model.Article
 		source   = "none"
@@ -111,7 +112,7 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 }
 
 func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
-	blogs, err := db.ListBlogs()
+	blogs, err := db.ListBlogs(nil)
 	if err != nil {
 		return nil, err
 	}

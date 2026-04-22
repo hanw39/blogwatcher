@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Hyaxia/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/model"
 )
 
 func TestDatabaseCreatesFileAndCRUD(t *testing.T) {
@@ -50,7 +50,7 @@ func TestDatabaseCreatesFileAndCRUD(t *testing.T) {
 		t.Fatalf("expected 2 articles, got %d", count)
 	}
 
-	list, err := db.ListArticles(false, nil)
+	list, err := db.ListArticles(false, nil, nil)
 	if err != nil {
 		t.Fatalf("list articles: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestListArticlesFiltersAndOrdering(t *testing.T) {
 		t.Fatalf("mark read: %v", err)
 	}
 
-	all, err := db.ListArticles(false, nil)
+	all, err := db.ListArticles(false, nil, nil)
 	if err != nil {
 		t.Fatalf("list articles: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestListArticlesFiltersAndOrdering(t *testing.T) {
 		t.Fatalf("expected newest article first")
 	}
 
-	unread, err := db.ListArticles(true, nil)
+	unread, err := db.ListArticles(true, nil, nil)
 	if err != nil {
 		t.Fatalf("list unread: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestListArticlesFiltersAndOrdering(t *testing.T) {
 	}
 
 	blogID := blogB.ID
-	filtered, err := db.ListArticles(false, &blogID)
+	filtered, err := db.ListArticles(false, &blogID, nil)
 	if err != nil {
 		t.Fatalf("list by blog: %v", err)
 	}
@@ -325,12 +325,230 @@ func TestBulkInsertDuplicateRollbackAndEmpty(t *testing.T) {
 		t.Fatalf("expected bulk insert to fail on duplicate url")
 	}
 
-	articles, err := db.ListArticles(false, nil)
+	articles, err := db.ListArticles(false, nil, nil)
 	if err != nil {
 		t.Fatalf("list articles: %v", err)
 	}
 	if len(articles) != 1 {
 		t.Fatalf("expected rollback on duplicate, got %d articles", len(articles))
+	}
+}
+
+func TestGetOrCreateCategory(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	cat, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	if cat.ID == 0 || cat.Name != "tech" {
+		t.Fatalf("unexpected category: %+v", cat)
+	}
+
+	cat2, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("get existing category: %v", err)
+	}
+	if cat2.ID != cat.ID {
+		t.Fatalf("expected same ID on second call, got %d vs %d", cat.ID, cat2.ID)
+	}
+}
+
+func TestBlogCategoryRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	cat, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com", CategoryID: &cat.ID})
+	if err != nil {
+		t.Fatalf("add blog with category: %v", err)
+	}
+	if blog.CategoryID == nil || *blog.CategoryID != cat.ID {
+		t.Fatalf("expected CategoryID %d, got %v", cat.ID, blog.CategoryID)
+	}
+
+	fetched, err := db.GetBlog(blog.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("get blog: %v", err)
+	}
+	if fetched.CategoryID == nil || *fetched.CategoryID != cat.ID {
+		t.Fatalf("expected CategoryID after fetch, got %v", fetched.CategoryID)
+	}
+
+	// Blog without category
+	plain, err := db.AddBlog(model.Blog{Name: "Plain", URL: "https://plain.example.com"})
+	if err != nil {
+		t.Fatalf("add plain blog: %v", err)
+	}
+	if plain.CategoryID != nil {
+		t.Fatalf("expected nil CategoryID for uncategorized blog")
+	}
+}
+
+func TestListBlogsWithCategoryFilter(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	tech, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	_, err = db.AddBlog(model.Blog{Name: "TechBlog", URL: "https://tech.example.com", CategoryID: &tech.ID})
+	if err != nil {
+		t.Fatalf("add tech blog: %v", err)
+	}
+	_, err = db.AddBlog(model.Blog{Name: "Other", URL: "https://other.example.com"})
+	if err != nil {
+		t.Fatalf("add other blog: %v", err)
+	}
+
+	all, err := db.ListBlogs(nil)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("expected 2 blogs, got %d: %v", len(all), err)
+	}
+
+	filtered, err := db.ListBlogs(&tech.ID)
+	if err != nil || len(filtered) != 1 || filtered[0].Name != "TechBlog" {
+		t.Fatalf("expected 1 tech blog, got %d: %v", len(filtered), err)
+	}
+}
+
+func TestListCategories(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	tech, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	_, err = db.GetOrCreateCategory("design")
+	if err != nil {
+		t.Fatalf("create empty category: %v", err)
+	}
+
+	_, err = db.AddBlog(model.Blog{Name: "TechBlog", URL: "https://tech.example.com", CategoryID: &tech.ID})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	cats, err := db.ListCategories()
+	if err != nil {
+		t.Fatalf("list categories: %v", err)
+	}
+	if len(cats) != 2 {
+		t.Fatalf("expected 2 categories, got %d", len(cats))
+	}
+
+	counts := make(map[string]int)
+	for _, c := range cats {
+		counts[c.Name] = c.BlogCount
+	}
+	if counts["tech"] != 1 {
+		t.Fatalf("expected tech BlogCount=1, got %d", counts["tech"])
+	}
+	if counts["design"] != 0 {
+		t.Fatalf("expected design BlogCount=0, got %d", counts["design"])
+	}
+}
+
+func TestListArticlesWithCategoryFilter(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	tech, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	techBlog, err := db.AddBlog(model.Blog{Name: "TechBlog", URL: "https://tech.example.com", CategoryID: &tech.ID})
+	if err != nil {
+		t.Fatalf("add tech blog: %v", err)
+	}
+	otherBlog, err := db.AddBlog(model.Blog{Name: "Other", URL: "https://other.example.com"})
+	if err != nil {
+		t.Fatalf("add other blog: %v", err)
+	}
+
+	_, err = db.AddArticle(model.Article{BlogID: techBlog.ID, Title: "Tech Post", URL: "https://tech.example.com/1"})
+	if err != nil {
+		t.Fatalf("add tech article: %v", err)
+	}
+	_, err = db.AddArticle(model.Article{BlogID: otherBlog.ID, Title: "Other Post", URL: "https://other.example.com/1"})
+	if err != nil {
+		t.Fatalf("add other article: %v", err)
+	}
+
+	all, err := db.ListArticles(false, nil, nil)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("expected 2 articles, got %d: %v", len(all), err)
+	}
+
+	filtered, err := db.ListArticles(false, nil, &tech.ID)
+	if err != nil || len(filtered) != 1 || filtered[0].Title != "Tech Post" {
+		t.Fatalf("expected 1 tech article, got %d: %v", len(filtered), err)
+	}
+
+	// Unknown category ID → empty list
+	unknown := int64(9999)
+	none, err := db.ListArticles(false, nil, &unknown)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("expected 0 articles for unknown category, got %d: %v", len(none), err)
+	}
+}
+
+func TestGetCategoryByName(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	missing, err := db.GetCategoryByName("nope")
+	if err != nil || missing != nil {
+		t.Fatalf("expected nil for missing category")
+	}
+
+	_, err = db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	found, err := db.GetCategoryByName("tech")
+	if err != nil || found == nil || found.Name != "tech" {
+		t.Fatalf("expected to find tech category: %v %+v", err, found)
 	}
 }
 

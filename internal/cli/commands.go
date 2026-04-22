@@ -11,15 +11,16 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/Hyaxia/blogwatcher/internal/controller"
-	"github.com/Hyaxia/blogwatcher/internal/model"
-	"github.com/Hyaxia/blogwatcher/internal/scanner"
-	"github.com/Hyaxia/blogwatcher/internal/storage"
+	"github.com/hanw39/blogwatcher/internal/controller"
+	"github.com/hanw39/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/scanner"
+	"github.com/hanw39/blogwatcher/internal/storage"
 )
 
 func newAddCommand() *cobra.Command {
 	var feedURL string
 	var scrapeSelector string
+	var category string
 
 	cmd := &cobra.Command{
 		Use:   "add <name> <url>",
@@ -33,7 +34,7 @@ func newAddCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector)
+			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector, category)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -44,6 +45,7 @@ func newAddCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&feedURL, "feed-url", "", "RSS/Atom feed URL (auto-discovered if not provided)")
 	cmd.Flags().StringVar(&scrapeSelector, "scrape-selector", "", "CSS selector for HTML scraping fallback")
+	cmd.Flags().StringVarP(&category, "category", "c", "", "Assign blog to a category")
 	return cmd
 }
 
@@ -82,6 +84,8 @@ func newRemoveCommand() *cobra.Command {
 }
 
 func newBlogsCommand() *cobra.Command {
+	var categoryName string
+
 	cmd := &cobra.Command{
 		Use:   "blogs",
 		Short: "List all tracked blogs.",
@@ -91,7 +95,23 @@ func newBlogsCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			blogs, err := db.ListBlogs()
+
+			var categoryID *int64
+			if categoryName != "" {
+				cat, err := db.GetCategoryByName(categoryName)
+				if err != nil {
+					return err
+				}
+				if cat != nil {
+					categoryID = &cat.ID
+				} else {
+					// unknown category → empty list
+					fmt.Printf("No blogs found in category '%s'.\n", categoryName)
+					return nil
+				}
+			}
+
+			blogs, err := db.ListBlogs(categoryID)
 			if err != nil {
 				return err
 			}
@@ -99,10 +119,22 @@ func newBlogsCommand() *cobra.Command {
 				fmt.Println("No blogs tracked yet. Use 'blogwatcher add' to add one.")
 				return nil
 			}
+			cats, err := db.ListCategories()
+			if err != nil {
+				return err
+			}
+			catNames := make(map[int64]string)
+			for _, c := range cats {
+				catNames[c.ID] = c.Name
+			}
+
 			color.New(color.FgCyan, color.Bold).Printf("Tracked blogs (%d):\n\n", len(blogs))
 			for _, blog := range blogs {
 				color.New(color.FgWhite, color.Bold).Printf("  %s\n", blog.Name)
 				fmt.Printf("    URL: %s\n", blog.URL)
+				if blog.CategoryID != nil {
+					fmt.Printf("    Category: %s\n", catNames[*blog.CategoryID])
+				}
 				if blog.FeedURL != "" {
 					fmt.Printf("    Feed: %s\n", blog.FeedURL)
 				}
@@ -117,6 +149,7 @@ func newBlogsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVarP(&categoryName, "category", "c", "", "Filter blogs by category")
 	return cmd
 }
 
@@ -149,7 +182,7 @@ func newScanCommand() *cobra.Command {
 					printScanResult(*result)
 				}
 			} else {
-				blogs, err := db.ListBlogs()
+				blogs, err := db.ListBlogs(nil)
 				if err != nil {
 					return err
 				}
@@ -195,6 +228,7 @@ func newScanCommand() *cobra.Command {
 func newArticlesCommand() *cobra.Command {
 	var showAll bool
 	var blogName string
+	var categoryName string
 
 	cmd := &cobra.Command{
 		Use:   "articles",
@@ -205,7 +239,7 @@ func newArticlesCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			articles, blogNames, err := controller.GetArticles(db, showAll, blogName)
+			articles, blogNames, err := controller.GetArticles(db, showAll, blogName, categoryName)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -233,6 +267,7 @@ func newArticlesCommand() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all articles (including read)")
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
+	cmd.Flags().StringVarP(&categoryName, "category", "c", "", "Filter articles by category")
 	return cmd
 }
 
@@ -281,7 +316,7 @@ func newReadAllCommand() *cobra.Command {
 			}
 			defer db.Close()
 
-			articles, blogNames, err := controller.GetArticles(db, false, blogName)
+			articles, blogNames, err := controller.GetArticles(db, false, blogName, "")
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -319,6 +354,69 @@ func newReadAllCommand() *cobra.Command {
 
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Only mark articles from this blog")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
+	return cmd
+}
+
+func newEditCommand() *cobra.Command {
+	var category string
+
+	cmd := &cobra.Command{
+		Use:   "edit <name>",
+		Short: "Edit a tracked blog.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			if !cmd.Flags().Changed("category") {
+				return fmt.Errorf("specify at least one field to edit (e.g. --category)")
+			}
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			_, err = controller.EditBlogCategory(db, name, category)
+			if err != nil {
+				printError(err)
+				return markError(err)
+			}
+			color.New(color.FgGreen).Printf("Updated blog '%s'\n", name)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&category, "category", "c", "", "Assign to category (empty string removes category)")
+	return cmd
+}
+
+func newCategoriesCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "categories",
+		Short: "List all categories.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			categories, err := controller.GetCategories(db)
+			if err != nil {
+				return err
+			}
+			if len(categories) == 0 {
+				fmt.Println("No categories yet.")
+				return nil
+			}
+			color.New(color.FgCyan, color.Bold).Printf("Categories (%d):\n\n", len(categories))
+			for _, cat := range categories {
+				blogWord := "blogs"
+				if cat.BlogCount == 1 {
+					blogWord = "blog"
+				}
+				color.New(color.FgWhite, color.Bold).Printf("  %s", cat.Name)
+				fmt.Printf("  %d %s\n", cat.BlogCount, blogWord)
+			}
+			return nil
+		},
+	}
 	return cmd
 }
 

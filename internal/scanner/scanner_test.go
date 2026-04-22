@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Hyaxia/blogwatcher/internal/model"
-	"github.com/Hyaxia/blogwatcher/internal/storage"
+	"github.com/hanw39/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/storage"
 )
 
 const sampleFeed = `<?xml version="1.0" encoding="UTF-8" ?>
@@ -49,7 +49,7 @@ func TestScanBlogRSS(t *testing.T) {
 		t.Fatalf("expected rss source, got %s", result.Source)
 	}
 
-	articles, err := db.ListArticles(false, nil)
+	articles, err := db.ListArticles(false, nil, nil)
 	if err != nil {
 		t.Fatalf("list articles: %v", err)
 	}

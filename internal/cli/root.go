@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Hyaxia/blogwatcher/internal/version"
+	"github.com/hanw39/blogwatcher/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +19,8 @@ func NewRootCommand() *cobra.Command {
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.AddCommand(newAddCommand())
 	rootCmd.AddCommand(newRemoveCommand())
+	rootCmd.AddCommand(newEditCommand())
+	rootCmd.AddCommand(newCategoriesCommand())
 	rootCmd.AddCommand(newBlogsCommand())
 	rootCmd.AddCommand(newScanCommand())
 	rootCmd.AddCommand(newArticlesCommand())

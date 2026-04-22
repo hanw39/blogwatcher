@@ -11,7 +11,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/Hyaxia/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/model"
 )
 
 const sqliteTimeLayout = time.RFC3339Nano
@@ -69,6 +69,10 @@ func (db *Database) Close() error {
 
 func (db *Database) init() error {
 	schema := `
+		CREATE TABLE IF NOT EXISTS categories (
+			id   INTEGER PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE
+		);
 		CREATE TABLE IF NOT EXISTS blogs (
 			id INTEGER PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -89,18 +93,53 @@ func (db *Database) init() error {
 		);
 	`
 	_, err := db.conn.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migration: add category_id to existing databases
+	_, err = db.conn.Exec(`ALTER TABLE blogs ADD COLUMN category_id INTEGER REFERENCES categories(id)`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	return nil
+}
+
+func (db *Database) GetOrCreateCategory(name string) (model.Category, error) {
+	_, err := db.conn.Exec(`INSERT OR IGNORE INTO categories (name) VALUES (?)`, name)
+	if err != nil {
+		return model.Category{}, err
+	}
+	row := db.conn.QueryRow(`SELECT id, name FROM categories WHERE name = ?`, name)
+	var cat model.Category
+	if err := row.Scan(&cat.ID, &cat.Name); err != nil {
+		return model.Category{}, err
+	}
+	return cat, nil
+}
+
+func (db *Database) GetCategoryByName(name string) (*model.Category, error) {
+	row := db.conn.QueryRow(`SELECT id, name FROM categories WHERE name = ?`, name)
+	var cat model.Category
+	if err := row.Scan(&cat.ID, &cat.Name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &cat, nil
 }
 
 func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {
 	result, err := db.conn.Exec(
-		`INSERT INTO blogs (name, url, feed_url, scrape_selector, last_scanned)
-		VALUES (?, ?, ?, ?, ?)`,
+		`INSERT INTO blogs (name, url, feed_url, scrape_selector, last_scanned, category_id)
+		VALUES (?, ?, ?, ?, ?, ?)`,
 		blog.Name,
 		blog.URL,
 		nullIfEmpty(blog.FeedURL),
 		nullIfEmpty(blog.ScrapeSelector),
 		formatTimePtr(blog.LastScanned),
+		nullableInt64(blog.CategoryID),
 	)
 	if err != nil {
 		return blog, err
@@ -114,22 +153,30 @@ func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {
 }
 
 func (db *Database) GetBlog(id int64) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs WHERE id = ?`, id)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE id = ?`, id)
 	return scanBlog(row)
 }
 
 func (db *Database) GetBlogByName(name string) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs WHERE name = ?`, name)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE name = ?`, name)
 	return scanBlog(row)
 }
 
 func (db *Database) GetBlogByURL(url string) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs WHERE url = ?`, url)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE url = ?`, url)
 	return scanBlog(row)
 }
 
-func (db *Database) ListBlogs() ([]model.Blog, error) {
-	rows, err := db.conn.Query(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs ORDER BY name`)
+func (db *Database) ListBlogs(categoryID *int64) ([]model.Blog, error) {
+	query := `SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE 1=1`
+	var args []interface{}
+	if categoryID != nil {
+		query += " AND category_id = ?"
+		args = append(args, *categoryID)
+	}
+	query += " ORDER BY name"
+
+	rows, err := db.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,14 +195,39 @@ func (db *Database) ListBlogs() ([]model.Blog, error) {
 	return blogs, rows.Err()
 }
 
+func (db *Database) ListCategories() ([]model.Category, error) {
+	rows, err := db.conn.Query(`
+		SELECT c.id, c.name, COUNT(b.id) AS blog_count
+		FROM categories c
+		LEFT JOIN blogs b ON b.category_id = c.id
+		GROUP BY c.id, c.name
+		ORDER BY c.name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var categories []model.Category
+	for rows.Next() {
+		var cat model.Category
+		if err := rows.Scan(&cat.ID, &cat.Name, &cat.BlogCount); err != nil {
+			return nil, err
+		}
+		categories = append(categories, cat)
+	}
+	return categories, rows.Err()
+}
+
 func (db *Database) UpdateBlog(blog model.Blog) error {
 	_, err := db.conn.Exec(
-		`UPDATE blogs SET name = ?, url = ?, feed_url = ?, scrape_selector = ?, last_scanned = ? WHERE id = ?`,
+		`UPDATE blogs SET name = ?, url = ?, feed_url = ?, scrape_selector = ?, last_scanned = ?, category_id = ? WHERE id = ?`,
 		blog.Name,
 		blog.URL,
 		nullIfEmpty(blog.FeedURL),
 		nullIfEmpty(blog.ScrapeSelector),
 		formatTimePtr(blog.LastScanned),
+		nullableInt64(blog.CategoryID),
 		blog.ID,
 	)
 	return err
@@ -298,17 +370,25 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 	return result, nil
 }
 
-func (db *Database) ListArticles(unreadOnly bool, blogID *int64) ([]model.Article, error) {
-	query := `SELECT id, blog_id, title, url, published_date, discovered_date, is_read FROM articles WHERE 1=1`
+func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int64) ([]model.Article, error) {
+	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.is_read FROM articles a`
+	if categoryID != nil {
+		query += ` JOIN blogs b ON a.blog_id = b.id`
+	}
+	query += ` WHERE 1=1`
 	var args []interface{}
 	if unreadOnly {
-		query += " AND is_read = 0"
+		query += " AND a.is_read = 0"
 	}
 	if blogID != nil {
-		query += " AND blog_id = ?"
+		query += " AND a.blog_id = ?"
 		args = append(args, *blogID)
 	}
-	query += " ORDER BY discovered_date DESC"
+	if categoryID != nil {
+		query += " AND b.category_id = ?"
+		args = append(args, *categoryID)
+	}
+	query += " ORDER BY a.discovered_date DESC"
 
 	rows, err := db.conn.Query(query, args...)
 	if err != nil {
@@ -361,8 +441,9 @@ func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error)
 		feedURL        sql.NullString
 		scrapeSelector sql.NullString
 		lastScanned    sql.NullString
+		categoryID     sql.NullInt64
 	)
-	if err := scanner.Scan(&id, &name, &url, &feedURL, &scrapeSelector, &lastScanned); err != nil {
+	if err := scanner.Scan(&id, &name, &url, &feedURL, &scrapeSelector, &lastScanned, &categoryID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -380,6 +461,9 @@ func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error)
 		if parsed, err := parseTime(lastScanned.String); err == nil {
 			blog.LastScanned = &parsed
 		}
+	}
+	if categoryID.Valid {
+		blog.CategoryID = &categoryID.Int64
 	}
 	return blog, nil
 }
@@ -454,4 +538,11 @@ func interfaceSlice(values []string) []interface{} {
 		result[i] = value
 	}
 	return result
+}
+
+func nullableInt64(value *int64) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
