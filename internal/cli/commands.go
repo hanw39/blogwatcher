@@ -84,6 +84,8 @@ func newRemoveCommand() *cobra.Command {
 }
 
 func newBlogsCommand() *cobra.Command {
+	var categoryName string
+
 	cmd := &cobra.Command{
 		Use:   "blogs",
 		Short: "List all tracked blogs.",
@@ -93,7 +95,23 @@ func newBlogsCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			blogs, err := db.ListBlogs(nil)
+
+			var categoryID *int64
+			if categoryName != "" {
+				cat, err := db.GetCategoryByName(categoryName)
+				if err != nil {
+					return err
+				}
+				if cat != nil {
+					categoryID = &cat.ID
+				} else {
+					// unknown category → empty list
+					fmt.Println("No blogs tracked yet. Use 'blogwatcher add' to add one.")
+					return nil
+				}
+			}
+
+			blogs, err := db.ListBlogs(categoryID)
 			if err != nil {
 				return err
 			}
@@ -119,6 +137,7 @@ func newBlogsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVarP(&categoryName, "category", "c", "", "Filter blogs by category")
 	return cmd
 }
 
@@ -197,6 +216,7 @@ func newScanCommand() *cobra.Command {
 func newArticlesCommand() *cobra.Command {
 	var showAll bool
 	var blogName string
+	var categoryName string
 
 	cmd := &cobra.Command{
 		Use:   "articles",
@@ -207,7 +227,7 @@ func newArticlesCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			articles, blogNames, err := controller.GetArticles(db, showAll, blogName, "")
+			articles, blogNames, err := controller.GetArticles(db, showAll, blogName, categoryName)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -235,6 +255,7 @@ func newArticlesCommand() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all articles (including read)")
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
+	cmd.Flags().StringVarP(&categoryName, "category", "c", "", "Filter articles by category")
 	return cmd
 }
 
