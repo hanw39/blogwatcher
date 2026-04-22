@@ -31,7 +31,7 @@ type ArticleNotFoundError struct {
 func (e ArticleNotFoundError) Error() string {
 	return fmt.Sprintf("Article %d not found", e.ID)
 }
-
+// (model.Blog, error) go supports multiple return values.
 func AddBlog(db *storage.Database, name string, url string, feedURL string, scrapeSelector string) (model.Blog, error) {
 	if existing, err := db.GetBlogByName(name); err != nil {
 		return model.Blog{}, err

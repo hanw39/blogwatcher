@@ -19,6 +19,7 @@ type ScanResult struct {
 }
 
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
+	// var (...) declaring variables in batches
 	var (
 		articles []model.Article
 		source   = "none"
