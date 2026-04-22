@@ -106,7 +106,7 @@ func newBlogsCommand() *cobra.Command {
 					categoryID = &cat.ID
 				} else {
 					// unknown category → empty list
-					fmt.Println("No blogs tracked yet. Use 'blogwatcher add' to add one.")
+					fmt.Printf("No blogs found in category '%s'.\n", categoryName)
 					return nil
 				}
 			}
@@ -119,10 +119,22 @@ func newBlogsCommand() *cobra.Command {
 				fmt.Println("No blogs tracked yet. Use 'blogwatcher add' to add one.")
 				return nil
 			}
+			cats, err := db.ListCategories()
+			if err != nil {
+				return err
+			}
+			catNames := make(map[int64]string)
+			for _, c := range cats {
+				catNames[c.ID] = c.Name
+			}
+
 			color.New(color.FgCyan, color.Bold).Printf("Tracked blogs (%d):\n\n", len(blogs))
 			for _, blog := range blogs {
 				color.New(color.FgWhite, color.Bold).Printf("  %s\n", blog.Name)
 				fmt.Printf("    URL: %s\n", blog.URL)
+				if blog.CategoryID != nil {
+					fmt.Printf("    Category: %s\n", catNames[*blog.CategoryID])
+				}
 				if blog.FeedURL != "" {
 					fmt.Printf("    Feed: %s\n", blog.FeedURL)
 				}
@@ -371,7 +383,7 @@ func newEditCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&category, "category", "", "Assign to category (empty string removes category)")
+	cmd.Flags().StringVarP(&category, "category", "c", "", "Assign to category (empty string removes category)")
 	return cmd
 }
 
