@@ -93,7 +93,8 @@ func GetArticles(db *storage.Database, showAll bool, blogName string, categoryNa
 			return nil, nil, err
 		}
 		if cat == nil {
-			return nil, nil, fmt.Errorf("category %q not found", categoryName)
+			// Unknown category — return empty result, not an error
+			return []model.Article{}, map[int64]string{}, nil
 		}
 		categoryID = &cat.ID
 	}
@@ -175,4 +176,33 @@ func MarkArticleUnread(db *storage.Database, articleID int64) (model.Article, er
 		}
 	}
 	return *article, nil
+}
+
+func EditBlogCategory(db *storage.Database, blogName string, categoryName string) (model.Blog, error) {
+	blog, err := db.GetBlogByName(blogName)
+	if err != nil {
+		return model.Blog{}, err
+	}
+	if blog == nil {
+		return model.Blog{}, BlogNotFoundError{Name: blogName}
+	}
+
+	if categoryName == "" {
+		blog.CategoryID = nil
+	} else {
+		cat, err := db.GetOrCreateCategory(categoryName)
+		if err != nil {
+			return model.Blog{}, err
+		}
+		blog.CategoryID = &cat.ID
+	}
+
+	if err := db.UpdateBlog(*blog); err != nil {
+		return model.Blog{}, err
+	}
+	return *blog, nil
+}
+
+func GetCategories(db *storage.Database) ([]model.Category, error) {
+	return db.ListCategories()
 }
