@@ -12,7 +12,7 @@
 Go 语言编写的 CLI 工具，用于追踪博客文章、发现新内容并管理已读/未读状态。<br>
 支持 RSS/Atom 订阅源，无订阅源时自动降级为 HTML 抓取。
 
-Fork 自 [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher)，新增**分类管理** — 将博客归入命名分组，按分类过滤文章。
+Fork 自 [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher)。
 
 [English](README.md) | 中文
 
@@ -34,6 +34,22 @@ blogwatcher scan
 
 # 查看未读文章
 blogwatcher articles
+```
+
+---
+
+## 新增功能
+
+> 在 [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher) 基础上新增
+
+**分类管理** — 将博客归入命名分组，按分类过滤文章：
+
+```bash
+blogwatcher add "技术博客" https://example.com -c engineering
+blogwatcher edit "技术博客" -c research
+blogwatcher blogs -c engineering
+blogwatcher articles -c engineering
+blogwatcher categories
 ```
 
 ---

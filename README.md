@@ -12,7 +12,7 @@
 A Go CLI tool to track blog articles, detect new posts, and manage read/unread status.<br>
 Supports RSS/Atom feeds and HTML scraping as fallback.
 
-Forked from [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher) — adds **category support** — organize blogs into named groups, filter articles by category.
+Forked from [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher).
 
 English | [中文](README.zh.md)
 
@@ -34,6 +34,22 @@ blogwatcher scan
 
 # Read unread articles
 blogwatcher articles
+```
+
+---
+
+## What's New
+
+> Added on top of [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher)
+
+**Category support** — organize your blogs into named groups and filter by category:
+
+```bash
+blogwatcher add "Tech Blog" https://example.com -c engineering
+blogwatcher edit "Tech Blog" -c research
+blogwatcher blogs -c engineering
+blogwatcher articles -c engineering
+blogwatcher categories
 ```
 
 ---
