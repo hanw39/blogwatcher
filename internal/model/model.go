@@ -9,6 +9,7 @@ type Blog struct {
 	FeedURL        string
 	ScrapeSelector string
 	LastScanned    *time.Time
+	CategoryID     *int64
 }
 
 type Article struct {
@@ -19,4 +20,10 @@ type Article struct {
 	PublishedDate  *time.Time
 	DiscoveredDate *time.Time
 	IsRead         bool
+}
+
+type Category struct {
+	ID        int64
+	Name      string
+	BlogCount int
 }
