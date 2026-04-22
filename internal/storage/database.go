@@ -69,6 +69,10 @@ func (db *Database) Close() error {
 
 func (db *Database) init() error {
 	schema := `
+		CREATE TABLE IF NOT EXISTS categories (
+			id   INTEGER PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE
+		);
 		CREATE TABLE IF NOT EXISTS blogs (
 			id INTEGER PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -89,7 +93,41 @@ func (db *Database) init() error {
 		);
 	`
 	_, err := db.conn.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migration: add category_id to existing databases
+	_, err = db.conn.Exec(`ALTER TABLE blogs ADD COLUMN category_id INTEGER REFERENCES categories(id)`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	return nil
+}
+
+func (db *Database) GetOrCreateCategory(name string) (model.Category, error) {
+	_, err := db.conn.Exec(`INSERT OR IGNORE INTO categories (name) VALUES (?)`, name)
+	if err != nil {
+		return model.Category{}, err
+	}
+	row := db.conn.QueryRow(`SELECT id, name FROM categories WHERE name = ?`, name)
+	var cat model.Category
+	if err := row.Scan(&cat.ID, &cat.Name); err != nil {
+		return model.Category{}, err
+	}
+	return cat, nil
+}
+
+func (db *Database) GetCategoryByName(name string) (*model.Category, error) {
+	row := db.conn.QueryRow(`SELECT id, name FROM categories WHERE name = ?`, name)
+	var cat model.Category
+	if err := row.Scan(&cat.ID, &cat.Name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &cat, nil
 }
 
 func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {

@@ -334,6 +334,57 @@ func TestBulkInsertDuplicateRollbackAndEmpty(t *testing.T) {
 	}
 }
 
+func TestGetOrCreateCategory(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	cat, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	if cat.ID == 0 || cat.Name != "tech" {
+		t.Fatalf("unexpected category: %+v", cat)
+	}
+
+	cat2, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("get existing category: %v", err)
+	}
+	if cat2.ID != cat.ID {
+		t.Fatalf("expected same ID on second call, got %d vs %d", cat.ID, cat2.ID)
+	}
+}
+
+func TestGetCategoryByName(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	missing, err := db.GetCategoryByName("nope")
+	if err != nil || missing != nil {
+		t.Fatalf("expected nil for missing category")
+	}
+
+	_, err = db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	found, err := db.GetCategoryByName("tech")
+	if err != nil || found == nil || found.Name != "tech" {
+		t.Fatalf("expected to find tech category: %v %+v", err, found)
+	}
+}
+
 func TestLookupHelpers(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "blogwatcher.db")
