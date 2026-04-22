@@ -324,6 +324,69 @@ func newReadAllCommand() *cobra.Command {
 	return cmd
 }
 
+func newEditCommand() *cobra.Command {
+	var category string
+
+	cmd := &cobra.Command{
+		Use:   "edit <name>",
+		Short: "Edit a tracked blog.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			if !cmd.Flags().Changed("category") {
+				return fmt.Errorf("specify at least one field to edit (e.g. --category)")
+			}
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			_, err = controller.EditBlogCategory(db, name, category)
+			if err != nil {
+				printError(err)
+				return markError(err)
+			}
+			color.New(color.FgGreen).Printf("Updated blog '%s'\n", name)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&category, "category", "", "Assign to category (empty string removes category)")
+	return cmd
+}
+
+func newCategoriesCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "categories",
+		Short: "List all categories.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			categories, err := controller.GetCategories(db)
+			if err != nil {
+				return err
+			}
+			if len(categories) == 0 {
+				fmt.Println("No categories yet.")
+				return nil
+			}
+			color.New(color.FgCyan, color.Bold).Printf("Categories (%d):\n\n", len(categories))
+			for _, cat := range categories {
+				blogWord := "blogs"
+				if cat.BlogCount == 1 {
+					blogWord = "blog"
+				}
+				color.New(color.FgWhite, color.Bold).Printf("  %s", cat.Name)
+				fmt.Printf("  %d %s\n", cat.BlogCount, blogWord)
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
 func newUnreadCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "unread <article_id>",
