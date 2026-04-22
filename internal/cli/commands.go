@@ -33,7 +33,7 @@ func newAddCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector)
+			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector, "")
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -205,7 +205,7 @@ func newArticlesCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			articles, blogNames, err := controller.GetArticles(db, showAll, blogName)
+			articles, blogNames, err := controller.GetArticles(db, showAll, blogName, "")
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -281,7 +281,7 @@ func newReadAllCommand() *cobra.Command {
 			}
 			defer db.Close()
 
-			articles, blogNames, err := controller.GetArticles(db, false, blogName)
+			articles, blogNames, err := controller.GetArticles(db, false, blogName, "")
 			if err != nil {
 				printError(err)
 				return markError(err)

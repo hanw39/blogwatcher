@@ -32,7 +32,7 @@ func (e ArticleNotFoundError) Error() string {
 	return fmt.Sprintf("Article %d not found", e.ID)
 }
 // (model.Blog, error) go supports multiple return values.
-func AddBlog(db *storage.Database, name string, url string, feedURL string, scrapeSelector string) (model.Blog, error) {
+func AddBlog(db *storage.Database, name string, url string, feedURL string, scrapeSelector string, categoryName string) (model.Blog, error) {
 	if existing, err := db.GetBlogByName(name); err != nil {
 		return model.Blog{}, err
 	} else if existing != nil {
@@ -50,6 +50,15 @@ func AddBlog(db *storage.Database, name string, url string, feedURL string, scra
 		FeedURL:        feedURL,
 		ScrapeSelector: scrapeSelector,
 	}
+
+	if categoryName != "" {
+		cat, err := db.GetOrCreateCategory(categoryName)
+		if err != nil {
+			return model.Blog{}, err
+		}
+		blog.CategoryID = &cat.ID
+	}
+
 	return db.AddBlog(blog)
 }
 
@@ -65,7 +74,7 @@ func RemoveBlog(db *storage.Database, name string) error {
 	return err
 }
 
-func GetArticles(db *storage.Database, showAll bool, blogName string) ([]model.Article, map[int64]string, error) {
+func GetArticles(db *storage.Database, showAll bool, blogName string, categoryName string) ([]model.Article, map[int64]string, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -78,7 +87,19 @@ func GetArticles(db *storage.Database, showAll bool, blogName string) ([]model.A
 		blogID = &blog.ID
 	}
 
-	articles, err := db.ListArticles(!showAll, blogID, nil)
+	var categoryID *int64
+	if categoryName != "" {
+		cat, err := db.GetCategoryByName(categoryName)
+		if err != nil {
+			return nil, nil, err
+		}
+		if cat == nil {
+			return nil, nil, fmt.Errorf("category %q not found", categoryName)
+		}
+		categoryID = &cat.ID
+	}
+
+	articles, err := db.ListArticles(!showAll, blogID, categoryID)
 	if err != nil {
 		return nil, nil, err
 	}

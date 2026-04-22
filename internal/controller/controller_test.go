@@ -12,16 +12,16 @@ func TestAddBlogAndRemoveBlog(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "", "")
 	if err != nil {
 		t.Fatalf("add blog: %v", err)
 	}
 
-	if _, err := AddBlog(db, "Test", "https://other.com", "", ""); err == nil {
+	if _, err := AddBlog(db, "Test", "https://other.com", "", "", ""); err == nil {
 		t.Fatalf("expected duplicate name error")
 	}
 
-	if _, err := AddBlog(db, "Other", "https://example.com", "", ""); err == nil {
+	if _, err := AddBlog(db, "Other", "https://example.com", "", "", ""); err == nil {
 		t.Fatalf("expected duplicate url error")
 	}
 
@@ -30,11 +30,33 @@ func TestAddBlogAndRemoveBlog(t *testing.T) {
 	}
 }
 
+func TestAddBlogWithCategory(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "TechBlog", "https://tech.example.com", "", "", "tech")
+	if err != nil {
+		t.Fatalf("add blog with category: %v", err)
+	}
+	if blog.CategoryID == nil {
+		t.Fatalf("expected CategoryID to be set")
+	}
+
+	// Same category again — must reuse existing, not error
+	blog2, err := AddBlog(db, "TechBlog2", "https://tech2.example.com", "", "", "tech")
+	if err != nil {
+		t.Fatalf("add second blog with same category: %v", err)
+	}
+	if blog2.CategoryID == nil || *blog2.CategoryID != *blog.CategoryID {
+		t.Fatalf("expected same category ID for both blogs")
+	}
+}
+
 func TestArticleReadUnread(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "", "")
 	if err != nil {
 		t.Fatalf("add blog: %v", err)
 	}
@@ -64,7 +86,7 @@ func TestGetArticlesFilters(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "", "")
 	if err != nil {
 		t.Fatalf("add blog: %v", err)
 	}
@@ -73,7 +95,7 @@ func TestGetArticlesFilters(t *testing.T) {
 		t.Fatalf("add article: %v", err)
 	}
 
-	articles, blogNames, err := GetArticles(db, false, "")
+	articles, blogNames, err := GetArticles(db, false, "", "")
 	if err != nil {
 		t.Fatalf("get articles: %v", err)
 	}
@@ -84,7 +106,7 @@ func TestGetArticlesFilters(t *testing.T) {
 		t.Fatalf("expected blog name")
 	}
 
-	if _, _, err := GetArticles(db, false, "Missing"); err == nil {
+	if _, _, err := GetArticles(db, false, "Missing", ""); err == nil {
 		t.Fatalf("expected blog not found error")
 	}
 }
