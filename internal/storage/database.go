@@ -370,17 +370,25 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 	return result, nil
 }
 
-func (db *Database) ListArticles(unreadOnly bool, blogID *int64) ([]model.Article, error) {
-	query := `SELECT id, blog_id, title, url, published_date, discovered_date, is_read FROM articles WHERE 1=1`
+func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int64) ([]model.Article, error) {
+	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.is_read FROM articles a`
+	if categoryID != nil {
+		query += ` JOIN blogs b ON a.blog_id = b.id`
+	}
+	query += ` WHERE 1=1`
 	var args []interface{}
 	if unreadOnly {
-		query += " AND is_read = 0"
+		query += " AND a.is_read = 0"
 	}
 	if blogID != nil {
-		query += " AND blog_id = ?"
+		query += " AND a.blog_id = ?"
 		args = append(args, *blogID)
 	}
-	query += " ORDER BY discovered_date DESC"
+	if categoryID != nil {
+		query += " AND b.category_id = ?"
+		args = append(args, *categoryID)
+	}
+	query += " ORDER BY a.discovered_date DESC"
 
 	rows, err := db.conn.Query(query, args...)
 	if err != nil {

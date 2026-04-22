@@ -78,7 +78,7 @@ func GetArticles(db *storage.Database, showAll bool, blogName string) ([]model.A
 		blogID = &blog.ID
 	}
 
-	articles, err := db.ListArticles(!showAll, blogID)
+	articles, err := db.ListArticles(!showAll, blogID, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -124,7 +124,7 @@ func MarkAllArticlesRead(db *storage.Database, blogName string) ([]model.Article
 		blogID = &blog.ID
 	}
 
-	articles, err := db.ListArticles(true, blogID)
+	articles, err := db.ListArticles(true, blogID, nil)
 	if err != nil {
 		return nil, err
 	}

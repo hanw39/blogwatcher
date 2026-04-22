@@ -50,7 +50,7 @@ func TestDatabaseCreatesFileAndCRUD(t *testing.T) {
 		t.Fatalf("expected 2 articles, got %d", count)
 	}
 
-	list, err := db.ListArticles(false, nil)
+	list, err := db.ListArticles(false, nil, nil)
 	if err != nil {
 		t.Fatalf("list articles: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestListArticlesFiltersAndOrdering(t *testing.T) {
 		t.Fatalf("mark read: %v", err)
 	}
 
-	all, err := db.ListArticles(false, nil)
+	all, err := db.ListArticles(false, nil, nil)
 	if err != nil {
 		t.Fatalf("list articles: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestListArticlesFiltersAndOrdering(t *testing.T) {
 		t.Fatalf("expected newest article first")
 	}
 
-	unread, err := db.ListArticles(true, nil)
+	unread, err := db.ListArticles(true, nil, nil)
 	if err != nil {
 		t.Fatalf("list unread: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestListArticlesFiltersAndOrdering(t *testing.T) {
 	}
 
 	blogID := blogB.ID
-	filtered, err := db.ListArticles(false, &blogID)
+	filtered, err := db.ListArticles(false, &blogID, nil)
 	if err != nil {
 		t.Fatalf("list by blog: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestBulkInsertDuplicateRollbackAndEmpty(t *testing.T) {
 		t.Fatalf("expected bulk insert to fail on duplicate url")
 	}
 
-	articles, err := db.ListArticles(false, nil)
+	articles, err := db.ListArticles(false, nil, nil)
 	if err != nil {
 		t.Fatalf("list articles: %v", err)
 	}
@@ -474,6 +474,56 @@ func TestListCategories(t *testing.T) {
 	}
 	if counts["design"] != 0 {
 		t.Fatalf("expected design BlogCount=0, got %d", counts["design"])
+	}
+}
+
+func TestListArticlesWithCategoryFilter(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	tech, err := db.GetOrCreateCategory("tech")
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	techBlog, err := db.AddBlog(model.Blog{Name: "TechBlog", URL: "https://tech.example.com", CategoryID: &tech.ID})
+	if err != nil {
+		t.Fatalf("add tech blog: %v", err)
+	}
+	otherBlog, err := db.AddBlog(model.Blog{Name: "Other", URL: "https://other.example.com"})
+	if err != nil {
+		t.Fatalf("add other blog: %v", err)
+	}
+
+	_, err = db.AddArticle(model.Article{BlogID: techBlog.ID, Title: "Tech Post", URL: "https://tech.example.com/1"})
+	if err != nil {
+		t.Fatalf("add tech article: %v", err)
+	}
+	_, err = db.AddArticle(model.Article{BlogID: otherBlog.ID, Title: "Other Post", URL: "https://other.example.com/1"})
+	if err != nil {
+		t.Fatalf("add other article: %v", err)
+	}
+
+	all, err := db.ListArticles(false, nil, nil)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("expected 2 articles, got %d: %v", len(all), err)
+	}
+
+	filtered, err := db.ListArticles(false, nil, &tech.ID)
+	if err != nil || len(filtered) != 1 || filtered[0].Title != "Tech Post" {
+		t.Fatalf("expected 1 tech article, got %d: %v", len(filtered), err)
+	}
+
+	// Unknown category ID → empty list
+	unknown := int64(9999)
+	none, err := db.ListArticles(false, nil, &unknown)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("expected 0 articles for unknown category, got %d: %v", len(none), err)
 	}
 }
 
