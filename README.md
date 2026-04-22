@@ -14,6 +14,8 @@ Supports RSS/Atom feeds and HTML scraping as fallback.
 
 Forked from [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher) — adds **category support** to organize your blogs.
 
+English | [中文](README.zh.md)
+
 </div>
 
 ---
