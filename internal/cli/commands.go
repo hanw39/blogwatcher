@@ -91,7 +91,7 @@ func newBlogsCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			blogs, err := db.ListBlogs()
+			blogs, err := db.ListBlogs(nil)
 			if err != nil {
 				return err
 			}
@@ -149,7 +149,7 @@ func newScanCommand() *cobra.Command {
 					printScanResult(*result)
 				}
 			} else {
-				blogs, err := db.ListBlogs()
+				blogs, err := db.ListBlogs(nil)
 				if err != nil {
 					return err
 				}

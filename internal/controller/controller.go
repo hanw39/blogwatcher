@@ -82,7 +82,7 @@ func GetArticles(db *storage.Database, showAll bool, blogName string) ([]model.A
 	if err != nil {
 		return nil, nil, err
 	}
-	blogs, err := db.ListBlogs()
+	blogs, err := db.ListBlogs(nil)
 	if err != nil {
 		return nil, nil, err
 	}
