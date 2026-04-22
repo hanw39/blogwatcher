@@ -112,7 +112,7 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 }
 
 func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
-	blogs, err := db.ListBlogs()
+	blogs, err := db.ListBlogs(nil)
 	if err != nil {
 		return nil, err
 	}

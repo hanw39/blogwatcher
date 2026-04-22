@@ -132,13 +132,14 @@ func (db *Database) GetCategoryByName(name string) (*model.Category, error) {
 
 func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {
 	result, err := db.conn.Exec(
-		`INSERT INTO blogs (name, url, feed_url, scrape_selector, last_scanned)
-		VALUES (?, ?, ?, ?, ?)`,
+		`INSERT INTO blogs (name, url, feed_url, scrape_selector, last_scanned, category_id)
+		VALUES (?, ?, ?, ?, ?, ?)`,
 		blog.Name,
 		blog.URL,
 		nullIfEmpty(blog.FeedURL),
 		nullIfEmpty(blog.ScrapeSelector),
 		formatTimePtr(blog.LastScanned),
+		nullableInt64(blog.CategoryID),
 	)
 	if err != nil {
 		return blog, err
@@ -152,22 +153,30 @@ func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {
 }
 
 func (db *Database) GetBlog(id int64) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs WHERE id = ?`, id)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE id = ?`, id)
 	return scanBlog(row)
 }
 
 func (db *Database) GetBlogByName(name string) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs WHERE name = ?`, name)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE name = ?`, name)
 	return scanBlog(row)
 }
 
 func (db *Database) GetBlogByURL(url string) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs WHERE url = ?`, url)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE url = ?`, url)
 	return scanBlog(row)
 }
 
-func (db *Database) ListBlogs() ([]model.Blog, error) {
-	rows, err := db.conn.Query(`SELECT id, name, url, feed_url, scrape_selector, last_scanned FROM blogs ORDER BY name`)
+func (db *Database) ListBlogs(categoryID *int64) ([]model.Blog, error) {
+	query := `SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE 1=1`
+	var args []interface{}
+	if categoryID != nil {
+		query += " AND category_id = ?"
+		args = append(args, *categoryID)
+	}
+	query += " ORDER BY name"
+
+	rows, err := db.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -186,14 +195,39 @@ func (db *Database) ListBlogs() ([]model.Blog, error) {
 	return blogs, rows.Err()
 }
 
+func (db *Database) ListCategories() ([]model.Category, error) {
+	rows, err := db.conn.Query(`
+		SELECT c.id, c.name, COUNT(b.id) AS blog_count
+		FROM categories c
+		LEFT JOIN blogs b ON b.category_id = c.id
+		GROUP BY c.id, c.name
+		ORDER BY c.name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var categories []model.Category
+	for rows.Next() {
+		var cat model.Category
+		if err := rows.Scan(&cat.ID, &cat.Name, &cat.BlogCount); err != nil {
+			return nil, err
+		}
+		categories = append(categories, cat)
+	}
+	return categories, rows.Err()
+}
+
 func (db *Database) UpdateBlog(blog model.Blog) error {
 	_, err := db.conn.Exec(
-		`UPDATE blogs SET name = ?, url = ?, feed_url = ?, scrape_selector = ?, last_scanned = ? WHERE id = ?`,
+		`UPDATE blogs SET name = ?, url = ?, feed_url = ?, scrape_selector = ?, last_scanned = ?, category_id = ? WHERE id = ?`,
 		blog.Name,
 		blog.URL,
 		nullIfEmpty(blog.FeedURL),
 		nullIfEmpty(blog.ScrapeSelector),
 		formatTimePtr(blog.LastScanned),
+		nullableInt64(blog.CategoryID),
 		blog.ID,
 	)
 	return err
@@ -399,8 +433,9 @@ func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error)
 		feedURL        sql.NullString
 		scrapeSelector sql.NullString
 		lastScanned    sql.NullString
+		categoryID     sql.NullInt64
 	)
-	if err := scanner.Scan(&id, &name, &url, &feedURL, &scrapeSelector, &lastScanned); err != nil {
+	if err := scanner.Scan(&id, &name, &url, &feedURL, &scrapeSelector, &lastScanned, &categoryID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -418,6 +453,9 @@ func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error)
 		if parsed, err := parseTime(lastScanned.String); err == nil {
 			blog.LastScanned = &parsed
 		}
+	}
+	if categoryID.Valid {
+		blog.CategoryID = &categoryID.Int64
 	}
 	return blog, nil
 }
@@ -492,4 +530,11 @@ func interfaceSlice(values []string) []interface{} {
 		result[i] = value
 	}
 	return result
+}
+
+func nullableInt64(value *int64) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
