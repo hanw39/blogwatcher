@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Hyaxia/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/model"
 )
 
 func TestDatabaseCreatesFileAndCRUD(t *testing.T) {

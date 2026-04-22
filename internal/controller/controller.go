@@ -3,8 +3,8 @@ package controller
 import (
 	"fmt"
 
-	"github.com/Hyaxia/blogwatcher/internal/model"
-	"github.com/Hyaxia/blogwatcher/internal/storage"
+	"github.com/hanw39/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/storage"
 )
 
 type BlogNotFoundError struct {

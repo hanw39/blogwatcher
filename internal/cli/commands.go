@@ -11,10 +11,10 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/Hyaxia/blogwatcher/internal/controller"
-	"github.com/Hyaxia/blogwatcher/internal/model"
-	"github.com/Hyaxia/blogwatcher/internal/scanner"
-	"github.com/Hyaxia/blogwatcher/internal/storage"
+	"github.com/hanw39/blogwatcher/internal/controller"
+	"github.com/hanw39/blogwatcher/internal/model"
+	"github.com/hanw39/blogwatcher/internal/scanner"
+	"github.com/hanw39/blogwatcher/internal/storage"
 )
 
 func newAddCommand() *cobra.Command {
