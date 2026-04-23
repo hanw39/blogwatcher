@@ -42,6 +42,14 @@ blogwatcher articles
 
 > 在 [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher) 基础上新增
 
+**OPML 导入** — 从 Feedly、Inoreader 等阅读器的导出文件批量导入订阅：
+
+```bash
+blogwatcher import subscriptions.opml
+```
+
+**RSS 订阅源发现优化** — 通过 `Content-Type` 响应头和 `rel="self"` 链接更精准地识别订阅源，修复了部分博客（如 TechCrunch 标签页）无法自动发现的问题。
+
 **分类管理** — 将博客归入命名分组，按分类过滤文章：
 
 ```bash
@@ -60,7 +68,9 @@ blogwatcher categories
 |---|---|
 | 📡 **双源支持** | 优先使用 RSS，无订阅源时自动降级为 HTML 抓取 |
 | 🔍 **自动发现订阅源** | 从博客主页自动检测 RSS/Atom 地址 |
-| 🗂️ **分类管理** 🆕 | 将博客归入命名分组，按分类过滤文章 |
+| 📥 **OPML 导入** 🆕 | 从 Feedly / Inoreader 导出文件批量导入订阅 |
+| 🔗 **订阅源识别优化** 🆕 | 通过 Content-Type 和 `rel="self"` 更精准地识别订阅源 |
+| 🗂️ **分类管理** | 将博客归入命名分组，按分类过滤文章 |
 | ✅ **已读/未读追踪** | 记录哪些文章已经读过 |
 | 🚫 **去重** | 同一篇文章永远不会重复收录 |
 | ⚡ **并发扫描** | 可配置并发数，批量扫描更快 |
@@ -84,6 +94,15 @@ Windows 和 Linux 二进制文件可在 [Releases](https://github.com/hanw39/blo
 ---
 
 ## 使用方法
+
+### 从 OPML 导入
+
+```bash
+# 从阅读器导出文件批量导入（Feedly、Inoreader 等）
+blogwatcher import subscriptions.opml
+```
+
+支持 OPML 1.0/2.0 及嵌套分类。重复的博客会在导入报告中标注，不会重复添加。
 
 ### 添加博客
 

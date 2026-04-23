@@ -42,6 +42,14 @@ blogwatcher articles
 
 > Added on top of [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher)
 
+**OPML Import** — bulk-import blog subscriptions from feed reader exports (Feedly, Inoreader, etc.):
+
+```bash
+blogwatcher import subscriptions.opml
+```
+
+**Improved RSS Discovery** — better feed detection via `Content-Type` headers and `rel="self"` links, fixing feeds that previously weren't auto-detected (e.g. TechCrunch tag pages).
+
 **Category support** — organize your blogs into named groups and filter by category:
 
 ```bash
@@ -60,7 +68,9 @@ blogwatcher categories
 |---|---|
 | 📡 **Dual Source Support** | Tries RSS feeds first, falls back to HTML scraping |
 | 🔍 **Auto Feed Discovery** | Detects RSS/Atom URLs from blog homepages |
-| 🗂️ **Category Support** 🆕 | Organize blogs into named groups, filter articles by category |
+| 📥 **OPML Import** 🆕 | Bulk-import subscriptions from Feedly / Inoreader OPML exports |
+| 🔗 **Better Feed Detection** 🆕 | Finds feeds via Content-Type headers and `rel="self"` links |
+| 🗂️ **Category Support** | Organize blogs into named groups, filter articles by category |
 | ✅ **Read/Unread Tracking** | Keep track of what you've read |
 | 🚫 **Duplicate Prevention** | Never tracks the same article twice |
 | ⚡ **Concurrent Scanning** | Configurable parallel workers |
@@ -84,6 +94,15 @@ Windows and Linux binaries are available on the [Releases](https://github.com/ha
 ---
 
 ## Usage
+
+### Importing from OPML
+
+```bash
+# Import all subscriptions from a feed reader export (Feedly, Inoreader, etc.)
+blogwatcher import subscriptions.opml
+```
+
+Handles OPML 1.0/2.0 and nested categories. Duplicate blogs are reported but not re-added.
 
 ### Adding Blogs
 
