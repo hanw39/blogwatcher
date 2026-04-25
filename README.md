@@ -23,6 +23,9 @@ English | [中文](README.zh.md)
 ## Quick Start
 
 ```bash
+# Homebrew (Linux/MacOS)
+brew install hanw39/tap/blogwatcher
+
 # Install
 go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
 
