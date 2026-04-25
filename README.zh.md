@@ -23,6 +23,9 @@ Fork 自 [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher)。
 ## 快速开始
 
 ```bash
+# Homebrew (Linux/MacOS)
+brew install hanw39/tap/blogwatcher
+
 # 安装
 go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
 
