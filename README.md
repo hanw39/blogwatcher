@@ -83,9 +83,23 @@ blogwatcher categories
 ## Installation
 
 ```bash
-# Install the CLI
+# Install the CLI (global)
 go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
+```
 
+China mainland users (one-liner):
+
+```powershell
+# PowerShell
+$env:GOPROXY="https://goproxy.cn,direct"; $env:GOSUMDB="sum.golang.google.cn"; go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
+```
+
+```cmd
+:: CMD
+set GOPROXY=https://goproxy.cn,direct && set GOSUMDB=sum.golang.google.cn && go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
+```
+
+```bash
 # Or build locally
 git clone https://github.com/hanw39/blogwatcher
 cd blogwatcher
