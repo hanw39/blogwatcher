@@ -83,7 +83,10 @@ blogwatcher categories
 ## Installation
 
 ```bash
-# Install the CLI (global)
+# Homebrew (Linux/macOS)
+brew install hanw39/tap/blogwatcher
+
+# Or install via Go (global)
 go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
 ```
 

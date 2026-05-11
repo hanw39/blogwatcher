@@ -83,9 +83,26 @@ blogwatcher categories
 ## 安装
 
 ```bash
-# 通过 go install 安装
-go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
+# Homebrew (Linux/macOS)
+brew install hanw39/tap/blogwatcher
 
+# 或通过 Go 安装（海外）
+go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
+```
+
+国内用户（一行命令）：
+
+```powershell
+# PowerShell
+$env:GOPROXY="https://goproxy.cn,direct"; $env:GOSUMDB="sum.golang.google.cn"; go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
+```
+
+```cmd
+:: CMD
+set GOPROXY=https://goproxy.cn,direct && set GOSUMDB=sum.golang.google.cn && go install github.com/hanw39/blogwatcher/cmd/blogwatcher@latest
+```
+
+```bash
 # 或本地构建
 git clone https://github.com/hanw39/blogwatcher
 cd blogwatcher
