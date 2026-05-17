@@ -13,13 +13,13 @@ import (
 type ScanResult struct {
 	BlogName    string
 	NewArticles int
+	Refreshed   int
 	TotalFound  int
 	Source      string
 	Error       string
 }
 
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
-	// var (...) declaring variables in batches
 	var (
 		articles []model.Article
 		source   = "none"
@@ -80,14 +80,25 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 		errText = err.Error()
 	}
 
-	discoveredAt := time.Now()
+	now := time.Now()
+	todayMidnightLocal := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
 	newArticles := make([]model.Article, 0, len(uniqueArticles))
+	refreshIDs := make([]int64, 0)
 	for _, article := range uniqueArticles {
-		if _, exists := existing[article.URL]; exists {
+		entry, exists := existing[article.URL]
+		if !exists {
+			article.DiscoveredDate = &now
+			newArticles = append(newArticles, article)
 			continue
 		}
-		article.DiscoveredDate = &discoveredAt
-		newArticles = append(newArticles, article)
+		if !blog.IsEphemeral {
+			continue
+		}
+		// Ephemeral: lift discovered_date to now if it hasn't been touched today.
+		if entry.DiscoveredDate == nil || entry.DiscoveredDate.Before(todayMidnightLocal) {
+			refreshIDs = append(refreshIDs, entry.ID)
+		}
 	}
 
 	newCount := 0
@@ -100,11 +111,21 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 		}
 	}
 
+	refreshedCount := 0
+	if len(refreshIDs) > 0 {
+		if err := db.TouchArticlesBulk(refreshIDs, now); err != nil {
+			errText = err.Error()
+		} else {
+			refreshedCount = len(refreshIDs)
+		}
+	}
+
 	_ = db.UpdateBlogLastScanned(blog.ID, time.Now())
 
 	return ScanResult{
 		BlogName:    blog.Name,
 		NewArticles: newCount,
+		Refreshed:   refreshedCount,
 		TotalFound:  len(seenURLs),
 		Source:      source,
 		Error:       errText,

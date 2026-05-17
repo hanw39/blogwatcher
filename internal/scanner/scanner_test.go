@@ -162,3 +162,70 @@ func TestScanBlogRespectsExistingArticles(t *testing.T) {
 func ptrTime(value time.Time) *time.Time {
 	return &value
 }
+
+func TestScanBlogEphemeralRefreshOncePerDay(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Eph", URL: "https://eph.example.com", FeedURL: server.URL, IsEphemeral: true})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	// Seed an existing article with a yesterday discovered_date — should be lifted.
+	yesterday := time.Now().Add(-26 * time.Hour)
+	_, err = db.AddArticle(model.Article{BlogID: blog.ID, Title: "First", URL: "https://example.com/1", DiscoveredDate: &yesterday})
+	if err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	first := ScanBlog(db, blog)
+	if first.Refreshed != 1 {
+		t.Fatalf("expected Refreshed=1 on first scan, got %d", first.Refreshed)
+	}
+	if first.NewArticles != 1 {
+		t.Fatalf("expected NewArticles=1 (the second feed item), got %d", first.NewArticles)
+	}
+
+	// Second scan same day: nothing to refresh, nothing new.
+	second := ScanBlog(db, blog)
+	if second.Refreshed != 0 {
+		t.Fatalf("expected Refreshed=0 on second same-day scan, got %d", second.Refreshed)
+	}
+	if second.NewArticles != 0 {
+		t.Fatalf("expected NewArticles=0 on second scan, got %d", second.NewArticles)
+	}
+}
+
+func TestScanBlogNonEphemeralDoesNotRefresh(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Reg", URL: "https://reg.example.com", FeedURL: server.URL})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	yesterday := time.Now().Add(-26 * time.Hour)
+	_, err = db.AddArticle(model.Article{BlogID: blog.ID, Title: "First", URL: "https://example.com/1", DiscoveredDate: &yesterday})
+	if err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	result := ScanBlog(db, blog)
+	if result.Refreshed != 0 {
+		t.Fatalf("expected Refreshed=0 for non-ephemeral blog, got %d", result.Refreshed)
+	}
+}
