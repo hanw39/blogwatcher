@@ -10,6 +10,7 @@ type Blog struct {
 	ScrapeSelector string
 	LastScanned    *time.Time
 	CategoryID     *int64
+	IsEphemeral    bool
 }
 
 type Article struct {
@@ -19,11 +20,31 @@ type Article struct {
 	URL            string
 	PublishedDate  *time.Time
 	DiscoveredDate *time.Time
-	IsRead         bool
+	ReadAt         *time.Time
 }
 
 type Category struct {
 	ID        int64
 	Name      string
 	BlogCount int
+}
+
+// ArticleIsRead returns whether the article should be displayed as read,
+// given the owning blog's ephemeral flag and the current time.
+//
+//   - Regular blog: read iff ReadAt is non-nil.
+//   - Ephemeral blog: read iff ReadAt is non-nil AND falls on the same local day as now.
+func ArticleIsRead(a Article, blogIsEphemeral bool, now time.Time) bool {
+	if a.ReadAt == nil {
+		return false
+	}
+	if !blogIsEphemeral {
+		return true
+	}
+	return sameLocalDay(*a.ReadAt, now)
+}
+
+func sameLocalDay(a, b time.Time) bool {
+	al, bl := a.Local(), b.Local()
+	return al.Year() == bl.Year() && al.YearDay() == bl.YearDay()
 }

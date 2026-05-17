@@ -21,6 +21,7 @@ func newAddCommand() *cobra.Command {
 	var feedURL string
 	var scrapeSelector string
 	var category string
+	var ephemeral bool
 
 	cmd := &cobra.Command{
 		Use:   "add <name> <url>",
@@ -34,7 +35,7 @@ func newAddCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector, category)
+			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector, category, ephemeral)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -46,6 +47,7 @@ func newAddCommand() *cobra.Command {
 	cmd.Flags().StringVar(&feedURL, "feed-url", "", "RSS/Atom feed URL (auto-discovered if not provided)")
 	cmd.Flags().StringVar(&scrapeSelector, "scrape-selector", "", "CSS selector for HTML scraping fallback")
 	cmd.Flags().StringVarP(&category, "category", "c", "", "Assign blog to a category")
+	cmd.Flags().BoolVar(&ephemeral, "ephemeral", false, "Mark as a daily-reset source (e.g. GitHub Trending)")
 	return cmd
 }
 
@@ -130,7 +132,12 @@ func newBlogsCommand() *cobra.Command {
 
 			color.New(color.FgCyan, color.Bold).Printf("Tracked blogs (%d):\n\n", len(blogs))
 			for _, blog := range blogs {
-				color.New(color.FgWhite, color.Bold).Printf("  %s\n", blog.Name)
+				if blog.IsEphemeral {
+					color.New(color.FgWhite, color.Bold).Printf("  %s", blog.Name)
+					color.New(color.FgMagenta).Printf("  [daily]\n")
+				} else {
+					color.New(color.FgWhite, color.Bold).Printf("  %s\n", blog.Name)
+				}
 				fmt.Printf("    URL: %s\n", blog.URL)
 				if blog.CategoryID != nil {
 					fmt.Printf("    Category: %s\n", catNames[*blog.CategoryID])
@@ -239,7 +246,7 @@ func newArticlesCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			articles, blogNames, err := controller.GetArticles(db, showAll, blogName, categoryName)
+			articles, blogNames, blogEphemeral, err := controller.GetArticles(db, showAll, blogName, categoryName)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -259,7 +266,7 @@ func newArticlesCommand() *cobra.Command {
 			}
 			color.New(color.FgCyan, color.Bold).Printf("%s (%d):\n\n", label, len(articles))
 			for _, article := range articles {
-				printArticle(article, blogNames[article.BlogID])
+				printArticle(article, blogNames[article.BlogID], blogEphemeral[article.BlogID])
 			}
 			return nil
 		},
@@ -286,16 +293,17 @@ func newReadCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			article, err := controller.MarkArticleRead(db, articleID)
+			article, wasAlreadyRead, err := controller.MarkArticleRead(db, articleID)
 			if err != nil {
 				printError(err)
 				return markError(err)
 			}
-			if article.IsRead {
+			if wasAlreadyRead {
 				fmt.Printf("Article %d is already marked as read.\n", articleID)
 			} else {
 				color.New(color.FgGreen).Printf("Marked article %d as read\n", articleID)
 			}
+			_ = article
 			return nil
 		},
 	}
@@ -316,7 +324,7 @@ func newReadAllCommand() *cobra.Command {
 			}
 			defer db.Close()
 
-			articles, blogNames, err := controller.GetArticles(db, false, blogName, "")
+			articles, blogNames, _, err := controller.GetArticles(db, false, blogName, "")
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -359,6 +367,7 @@ func newReadAllCommand() *cobra.Command {
 
 func newEditCommand() *cobra.Command {
 	var category string
+	var ephemeral bool
 
 	cmd := &cobra.Command{
 		Use:   "edit <name>",
@@ -366,24 +375,34 @@ func newEditCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			if !cmd.Flags().Changed("category") {
-				return fmt.Errorf("specify at least one field to edit (e.g. --category)")
+			categoryChanged := cmd.Flags().Changed("category")
+			ephemeralChanged := cmd.Flags().Changed("ephemeral")
+			if !categoryChanged && !ephemeralChanged {
+				return fmt.Errorf("specify at least one field to edit (e.g. --category, --ephemeral)")
 			}
 			db, err := storage.OpenDatabase("")
 			if err != nil {
 				return err
 			}
 			defer db.Close()
-			_, err = controller.EditBlogCategory(db, name, category)
-			if err != nil {
-				printError(err)
-				return markError(err)
+			if categoryChanged {
+				if _, err := controller.EditBlogCategory(db, name, category); err != nil {
+					printError(err)
+					return markError(err)
+				}
+			}
+			if ephemeralChanged {
+				if _, err := controller.EditBlogEphemeral(db, name, ephemeral); err != nil {
+					printError(err)
+					return markError(err)
+				}
 			}
 			color.New(color.FgGreen).Printf("Updated blog '%s'\n", name)
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&category, "category", "c", "", "Assign to category (empty string removes category)")
+	cmd.Flags().BoolVar(&ephemeral, "ephemeral", false, "Mark/unmark as a daily-reset source (use --ephemeral=false to unset)")
 	return cmd
 }
 
@@ -463,16 +482,17 @@ func newUnreadCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			article, err := controller.MarkArticleUnread(db, articleID)
+			article, wasAlreadyUnread, err := controller.MarkArticleUnread(db, articleID)
 			if err != nil {
 				printError(err)
 				return markError(err)
 			}
-			if !article.IsRead {
+			if wasAlreadyUnread {
 				fmt.Printf("Article %d is already marked as unread.\n", articleID)
 			} else {
 				color.New(color.FgGreen).Printf("Marked article %d as unread\n", articleID)
 			}
+			_ = article
 			return nil
 		},
 	}
@@ -498,12 +518,17 @@ func printScanResult(result scanner.ScanResult) {
 		sourceLabel = "RSS"
 	}
 	fmt.Printf("    Source: %s | Found: %d | ", sourceLabel, result.TotalFound)
-	color.New(statusColor).Printf("New: %d\n", result.NewArticles)
+	color.New(statusColor).Printf("New: %d", result.NewArticles)
+	if result.Refreshed > 0 {
+		fmt.Printf(" | ")
+		color.New(color.FgMagenta).Printf("Refreshed: %d", result.Refreshed)
+	}
+	fmt.Println()
 }
 
-func printArticle(article model.Article, blogName string) {
+func printArticle(article model.Article, blogName string, blogIsEphemeral bool) {
 	status := color.New(color.FgYellow).Sprint("[new]")
-	if article.IsRead {
+	if model.ArticleIsRead(article, blogIsEphemeral, time.Now()) {
 		status = color.New(color.FgHiBlack).Sprint("[read]")
 	}
 	idStr := color.New(color.FgCyan).Sprintf("[%d]", article.ID)

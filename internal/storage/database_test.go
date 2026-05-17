@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,7 +68,7 @@ func TestDatabaseCreatesFileAndCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get article: %v", err)
 	}
-	if updated == nil || !updated.IsRead {
+	if updated == nil || updated.ReadAt == nil {
 		t.Fatalf("expected article read: %+v", updated)
 	}
 
@@ -108,8 +109,8 @@ func TestGetExistingArticleURLs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get existing: %v", err)
 	}
-	if _, ok := existing["https://example.com/1"]; !ok {
-		t.Fatalf("expected existing url")
+	if got, ok := existing["https://example.com/1"]; !ok || got.ID == 0 {
+		t.Fatalf("expected existing url with ID")
 	}
 	if _, ok := existing["https://example.com/2"]; ok {
 		t.Fatalf("did not expect url")
@@ -585,5 +586,247 @@ func TestLookupHelpers(t *testing.T) {
 	}
 	if exists, err := db.ArticleExists("https://example.com/missing"); err != nil || exists {
 		t.Fatalf("expected missing article to not exist")
+	}
+}
+
+func TestBlogIsEphemeralRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Trending", URL: "https://example.com/trending", IsEphemeral: true})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	fetched, err := db.GetBlog(blog.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("get blog: %v %v", fetched, err)
+	}
+	if !fetched.IsEphemeral {
+		t.Fatalf("expected IsEphemeral true, got false")
+	}
+
+	fetched.IsEphemeral = false
+	if err := db.UpdateBlog(*fetched); err != nil {
+		t.Fatalf("update blog: %v", err)
+	}
+	again, err := db.GetBlog(blog.ID)
+	if err != nil || again.IsEphemeral {
+		t.Fatalf("expected IsEphemeral false after update, got %+v %v", again, err)
+	}
+}
+
+func TestArticleReadAtRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "T", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	if _, err := db.MarkArticleRead(article.ID); err != nil {
+		t.Fatalf("mark read: %v", err)
+	}
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("get article: %v %v", fetched, err)
+	}
+	if fetched.ReadAt == nil {
+		t.Fatalf("expected ReadAt set after MarkArticleRead")
+	}
+
+	if _, err := db.MarkArticleUnread(article.ID); err != nil {
+		t.Fatalf("mark unread: %v", err)
+	}
+	fetched, err = db.GetArticle(article.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("get article 2: %v %v", fetched, err)
+	}
+	if fetched.ReadAt != nil {
+		t.Fatalf("expected ReadAt nil after MarkArticleUnread")
+	}
+}
+
+func TestMigrationBackfillsReadAt(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	// Insert an article and mark it read using the LEGACY path, then verify migration backfills read_at.
+	discoveredAt := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	article, err := db.AddArticle(model.Article{
+		BlogID:         blog.ID,
+		Title:          "Old",
+		URL:            "https://example.com/old",
+		DiscoveredDate: &discoveredAt,
+	})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	// Simulate legacy state: is_read=1, read_at=NULL.
+	if _, err := db.conn.Exec(`UPDATE articles SET is_read = 1, read_at = NULL WHERE id = ?`, article.ID); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+
+	// Re-run init to exercise the migration step.
+	if err := db.init(); err != nil {
+		t.Fatalf("re-init: %v", err)
+	}
+
+	row := db.conn.QueryRow(`SELECT read_at FROM articles WHERE id = ?`, article.ID)
+	var readAt sql.NullString
+	if err := row.Scan(&readAt); err != nil {
+		t.Fatalf("scan read_at: %v", err)
+	}
+	if !readAt.Valid {
+		t.Fatalf("expected read_at to be backfilled, got NULL")
+	}
+}
+
+func TestGetExistingArticleURLsReturnsDiscoveredDate(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	discoveredAt := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	_, err = db.AddArticle(model.Article{BlogID: blog.ID, Title: "One", URL: "https://example.com/1", DiscoveredDate: &discoveredAt})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	existing, err := db.GetExistingArticleURLs([]string{"https://example.com/1", "https://example.com/2"})
+	if err != nil {
+		t.Fatalf("get existing: %v", err)
+	}
+	got, ok := existing["https://example.com/1"]
+	if !ok {
+		t.Fatalf("expected existing url to be returned")
+	}
+	if got.ID == 0 {
+		t.Fatalf("expected ID populated")
+	}
+	if got.DiscoveredDate == nil || !got.DiscoveredDate.Equal(discoveredAt) {
+		t.Fatalf("expected DiscoveredDate %v, got %v", discoveredAt, got.DiscoveredDate)
+	}
+	if _, ok := existing["https://example.com/2"]; ok {
+		t.Fatalf("did not expect missing URL to appear")
+	}
+}
+
+func TestTouchArticlesBulk(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	old := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	a, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "A", URL: "https://example.com/a", DiscoveredDate: &old})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	b, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "B", URL: "https://example.com/b", DiscoveredDate: &old})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	newTime := time.Date(2026, 5, 17, 9, 0, 0, 0, time.UTC)
+	if err := db.TouchArticlesBulk([]int64{a.ID}, newTime); err != nil {
+		t.Fatalf("touch bulk: %v", err)
+	}
+
+	fetchedA, _ := db.GetArticle(a.ID)
+	fetchedB, _ := db.GetArticle(b.ID)
+	if fetchedA.DiscoveredDate == nil || !fetchedA.DiscoveredDate.Equal(newTime) {
+		t.Fatalf("expected A DiscoveredDate updated, got %v", fetchedA.DiscoveredDate)
+	}
+	if fetchedB.DiscoveredDate == nil || !fetchedB.DiscoveredDate.Equal(old) {
+		t.Fatalf("expected B DiscoveredDate unchanged, got %v", fetchedB.DiscoveredDate)
+	}
+
+	// Empty input is a no-op.
+	if err := db.TouchArticlesBulk(nil, newTime); err != nil {
+		t.Fatalf("touch bulk empty: %v", err)
+	}
+}
+
+func TestListArticlesEphemeralResetsAcrossDays(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	regular, err := db.AddBlog(model.Blog{Name: "Reg", URL: "https://reg.example.com"})
+	if err != nil {
+		t.Fatalf("add regular blog: %v", err)
+	}
+	ephemeral, err := db.AddBlog(model.Blog{Name: "Eph", URL: "https://eph.example.com", IsEphemeral: true})
+	if err != nil {
+		t.Fatalf("add ephemeral blog: %v", err)
+	}
+
+	regArt, err := db.AddArticle(model.Article{BlogID: regular.ID, Title: "R", URL: "https://reg.example.com/1"})
+	if err != nil {
+		t.Fatalf("add regular article: %v", err)
+	}
+	ephArt, err := db.AddArticle(model.Article{BlogID: ephemeral.ID, Title: "E", URL: "https://eph.example.com/1"})
+	if err != nil {
+		t.Fatalf("add ephemeral article: %v", err)
+	}
+
+	// Backdate read_at to yesterday for both.
+	yesterday := time.Now().Add(-26 * time.Hour).Format(sqliteTimeLayout)
+	if _, err := db.conn.Exec(`UPDATE articles SET read_at = ?, is_read = 1 WHERE id IN (?, ?)`, yesterday, regArt.ID, ephArt.ID); err != nil {
+		t.Fatalf("backdate read_at: %v", err)
+	}
+
+	unread, err := db.ListArticles(true, nil, nil)
+	if err != nil {
+		t.Fatalf("list unread: %v", err)
+	}
+	if len(unread) != 1 || unread[0].ID != ephArt.ID {
+		t.Fatalf("expected only ephemeral article in unread list, got %d items: %+v", len(unread), unread)
 	}
 }
