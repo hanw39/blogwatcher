@@ -45,6 +45,12 @@ blogwatcher articles
 
 > 在 [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher) 基础上新增
 
+**短时博客（Ephemeral）** — 针对 GitHub Trending 这类每日轮换的源，用 `--ephemeral` 标记后，今天读过的文章明天会重新变回未读：
+
+```bash
+blogwatcher add gh-trending https://github.com/trending --ephemeral
+```
+
 **OPML 导入** — 从 Feedly、Inoreader 等阅读器的导出文件批量导入订阅：
 
 ```bash
@@ -74,6 +80,7 @@ blogwatcher categories
 | 📥 **OPML 导入** 🆕 | 从 Feedly / Inoreader 导出文件批量导入订阅 |
 | 🔗 **订阅源识别优化** 🆕 | 通过 Content-Type 和 `rel="self"` 更精准地识别订阅源 |
 | 🗂️ **分类管理** | 将博客归入命名分组，按分类过滤文章 |
+| 🔄 **短时博客** 🆕 | 热榜 / 排行榜类源的已读状态按日重置 |
 | ✅ **已读/未读追踪** | 记录哪些文章已经读过 |
 | 🚫 **去重** | 同一篇文章永远不会重复收录 |
 | ⚡ **并发扫描** | 可配置并发数，批量扫描更快 |
@@ -164,7 +171,30 @@ blogwatcher edit "技术博客" -c engineering
 
 # 移除博客的分类
 blogwatcher edit "技术博客" -c ""
+
+# 标记/取消标记为短时博客（每日重置已读）
+blogwatcher edit "GitHub Trending" --ephemeral
+blogwatcher edit "GitHub Trending" --ephemeral=false
 ```
+
+### 短时博客（每日重置）
+
+像 GitHub Trending、每日新闻摘要、"Top Stories" 这类源，每天都在轮换内容。对这种博客，周一标已读的文章不应该永久保持已读 —— 同一个 URL 周二再次出现时，实际上是新内容。
+
+```bash
+# 添加短时博客
+blogwatcher add gh-trending https://github.com/trending --ephemeral --scrape-selector "h3 a"
+
+# 在已有博客上切换
+blogwatcher edit gh-trending --ephemeral
+blogwatcher edit gh-trending --ephemeral=false
+```
+
+短时博客的行为：
+
+- 已读文章在下一个本地自然日重新变为未读
+- `blogs` 列表中标记 `[daily]` 标签
+- `scan` 再次扫到旧文章时会把它"抬"到列表顶部（输出里出现 `Refreshed: N`），每天最多抬一次，不受扫描频率影响
 
 ### 管理分类
 

@@ -45,6 +45,12 @@ blogwatcher articles
 
 > Added on top of [Hyaxia/blogwatcher](https://github.com/Hyaxia/blogwatcher)
 
+**Ephemeral Blogs** — for daily-rotating sources like GitHub Trending, mark a blog as `--ephemeral` so articles read today reappear as unread tomorrow:
+
+```bash
+blogwatcher add gh-trending https://github.com/trending --ephemeral
+```
+
 **OPML Import** — bulk-import blog subscriptions from feed reader exports (Feedly, Inoreader, etc.):
 
 ```bash
@@ -74,6 +80,7 @@ blogwatcher categories
 | 📥 **OPML Import** 🆕 | Bulk-import subscriptions from Feedly / Inoreader OPML exports |
 | 🔗 **Better Feed Detection** 🆕 | Finds feeds via Content-Type headers and `rel="self"` links |
 | 🗂️ **Category Support** | Organize blogs into named groups, filter articles by category |
+| 🔄 **Ephemeral Sources** 🆕 | Daily-reset read status for trending / leaderboard blogs |
 | ✅ **Read/Unread Tracking** | Keep track of what you've read |
 | 🚫 **Duplicate Prevention** | Never tracks the same article twice |
 | ⚡ **Concurrent Scanning** | Configurable parallel workers |
@@ -164,7 +171,30 @@ blogwatcher edit "Tech Blog" -c engineering
 
 # Remove a blog from its category
 blogwatcher edit "Tech Blog" -c ""
+
+# Mark / unmark as an ephemeral (daily-reset) source
+blogwatcher edit "GitHub Trending" --ephemeral
+blogwatcher edit "GitHub Trending" --ephemeral=false
 ```
+
+### Ephemeral (Daily-Reset) Blogs
+
+Some sources — GitHub Trending, daily news roundups, "Top Stories" lists — rotate every day. For these, an article marked read on Monday shouldn't stay "read" forever; when the same URL reappears on Tuesday it's effectively new again.
+
+```bash
+# Add an ephemeral blog
+blogwatcher add gh-trending https://github.com/trending --ephemeral --scrape-selector "h3 a"
+
+# Toggle on an existing blog
+blogwatcher edit gh-trending --ephemeral
+blogwatcher edit gh-trending --ephemeral=false
+```
+
+For ephemeral blogs:
+
+- Read articles return to "unread" on the next local day
+- `blogs` lists them with a `[daily]` tag
+- `scan` lifts re-encountered articles to the top of the list (`Refreshed: N` in the scan output), at most once per local day regardless of how often you scan
 
 ### Managing Categories
 
