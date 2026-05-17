@@ -707,3 +707,45 @@ func TestMigrationBackfillsReadAt(t *testing.T) {
 		t.Fatalf("expected read_at to be backfilled, got NULL")
 	}
 }
+
+func TestListArticlesEphemeralResetsAcrossDays(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	regular, err := db.AddBlog(model.Blog{Name: "Reg", URL: "https://reg.example.com"})
+	if err != nil {
+		t.Fatalf("add regular blog: %v", err)
+	}
+	ephemeral, err := db.AddBlog(model.Blog{Name: "Eph", URL: "https://eph.example.com", IsEphemeral: true})
+	if err != nil {
+		t.Fatalf("add ephemeral blog: %v", err)
+	}
+
+	regArt, err := db.AddArticle(model.Article{BlogID: regular.ID, Title: "R", URL: "https://reg.example.com/1"})
+	if err != nil {
+		t.Fatalf("add regular article: %v", err)
+	}
+	ephArt, err := db.AddArticle(model.Article{BlogID: ephemeral.ID, Title: "E", URL: "https://eph.example.com/1"})
+	if err != nil {
+		t.Fatalf("add ephemeral article: %v", err)
+	}
+
+	// Backdate read_at to yesterday for both.
+	yesterday := time.Now().Add(-26 * time.Hour).Format(sqliteTimeLayout)
+	if _, err := db.conn.Exec(`UPDATE articles SET read_at = ?, is_read = 1 WHERE id IN (?, ?)`, yesterday, regArt.ID, ephArt.ID); err != nil {
+		t.Fatalf("backdate read_at: %v", err)
+	}
+
+	unread, err := db.ListArticles(true, nil, nil)
+	if err != nil {
+		t.Fatalf("list unread: %v", err)
+	}
+	if len(unread) != 1 || unread[0].ID != ephArt.ID {
+		t.Fatalf("expected only ephemeral article in unread list, got %d items: %+v", len(unread), unread)
+	}
+}

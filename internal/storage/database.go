@@ -385,14 +385,13 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 }
 
 func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int64) ([]model.Article, error) {
-	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.is_read, a.read_at FROM articles a`
-	if categoryID != nil {
-		query += ` JOIN blogs b ON a.blog_id = b.id`
-	}
-	query += ` WHERE 1=1`
+	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.is_read, a.read_at FROM articles a JOIN blogs b ON a.blog_id = b.id WHERE 1=1`
 	var args []interface{}
 	if unreadOnly {
-		query += " AND a.is_read = 0"
+		query += ` AND (
+			a.read_at IS NULL
+			OR (b.is_ephemeral = 1 AND date(a.read_at, 'localtime') < date('now', 'localtime'))
+		)`
 	}
 	if blogID != nil {
 		query += " AND a.blog_id = ?"
