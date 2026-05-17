@@ -141,7 +141,6 @@ func MarkArticleRead(db *storage.Database, articleID int64) (model.Article, bool
 		}
 		now := time.Now()
 		article.ReadAt = &now
-		article.IsRead = true
 	}
 	return *article, already, nil
 }
@@ -169,7 +168,6 @@ func MarkAllArticlesRead(db *storage.Database, blogName string) ([]model.Article
 		if err != nil {
 			return nil, err
 		}
-		articles[i].IsRead = true
 	}
 
 	return articles, nil
@@ -217,7 +215,6 @@ func MarkArticleUnread(db *storage.Database, articleID int64) (model.Article, bo
 			return model.Article{}, false, err
 		}
 		article.ReadAt = nil
-		article.IsRead = false
 	}
 	return *article, alreadyUnread, nil
 }

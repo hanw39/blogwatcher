@@ -270,14 +270,13 @@ func (db *Database) RemoveBlog(id int64) (bool, error) {
 
 func (db *Database) AddArticle(article model.Article) (model.Article, error) {
 	result, err := db.conn.Exec(
-		`INSERT INTO articles (blog_id, title, url, published_date, discovered_date, is_read)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO articles (blog_id, title, url, published_date, discovered_date)
+		VALUES (?, ?, ?, ?, ?)`,
 		article.BlogID,
 		article.Title,
 		article.URL,
 		formatTimePtr(article.PublishedDate),
 		formatTimePtr(article.DiscoveredDate),
-		article.IsRead,
 	)
 	if err != nil {
 		return article, err
@@ -298,7 +297,7 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	stmt, err := _tx.Prepare(`INSERT INTO articles (blog_id, title, url, published_date, discovered_date, is_read) VALUES (?, ?, ?, ?, ?, ?)`)
+	stmt, err := _tx.Prepare(`INSERT INTO articles (blog_id, title, url, published_date, discovered_date) VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = _tx.Rollback()
 		return 0, err
@@ -312,7 +311,6 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 			article.URL,
 			formatTimePtr(article.PublishedDate),
 			formatTimePtr(article.DiscoveredDate),
-			article.IsRead,
 		)
 		if err != nil {
 			_ = _tx.Rollback()
@@ -326,12 +324,12 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 }
 
 func (db *Database) GetArticle(id int64) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, read_at FROM articles WHERE id = ?`, id)
+	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, read_at FROM articles WHERE id = ?`, id)
 	return scanArticle(row)
 }
 
 func (db *Database) GetArticleByURL(url string) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, read_at FROM articles WHERE url = ?`, url)
+	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, read_at FROM articles WHERE url = ?`, url)
 	return scanArticle(row)
 }
 
@@ -425,7 +423,7 @@ func (db *Database) TouchArticlesBulk(ids []int64, ts time.Time) error {
 }
 
 func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int64) ([]model.Article, error) {
-	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.is_read, a.read_at FROM articles a JOIN blogs b ON a.blog_id = b.id WHERE 1=1`
+	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.read_at FROM articles a JOIN blogs b ON a.blog_id = b.id WHERE 1=1`
 	var args []interface{}
 	if unreadOnly {
 		query += ` AND (
@@ -463,7 +461,7 @@ func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int
 }
 
 func (db *Database) MarkArticleRead(id int64) (bool, error) {
-	result, err := db.conn.Exec(`UPDATE articles SET is_read = 1, read_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	result, err := db.conn.Exec(`UPDATE articles SET read_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
 	if err != nil {
 		return false, err
 	}
@@ -475,7 +473,7 @@ func (db *Database) MarkArticleRead(id int64) (bool, error) {
 }
 
 func (db *Database) MarkArticleUnread(id int64) (bool, error) {
-	result, err := db.conn.Exec(`UPDATE articles SET is_read = 0, read_at = NULL WHERE id = ?`, id)
+	result, err := db.conn.Exec(`UPDATE articles SET read_at = NULL WHERE id = ?`, id)
 	if err != nil {
 		return false, err
 	}
@@ -537,10 +535,9 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 		url           string
 		publishedDate sql.NullString
 		discovered    sql.NullString
-		isRead        bool
 		readAt        sql.NullString
 	)
-	if err := scanner.Scan(&id, &blogID, &title, &url, &publishedDate, &discovered, &isRead, &readAt); err != nil {
+	if err := scanner.Scan(&id, &blogID, &title, &url, &publishedDate, &discovered, &readAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -552,7 +549,6 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 		BlogID: blogID,
 		Title:  title,
 		URL:    url,
-		IsRead: isRead,
 	}
 	if publishedDate.Valid {
 		if parsed, err := parseTime(publishedDate.String); err == nil {

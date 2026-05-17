@@ -202,7 +202,6 @@ func convertFeedArticles(blogID int64, articles []rss.FeedArticle) []model.Artic
 			Title:         article.Title,
 			URL:           article.URL,
 			PublishedDate: article.PublishedDate,
-			IsRead:        false,
 		})
 	}
 	return result
@@ -216,7 +215,6 @@ func convertScrapedArticles(blogID int64, articles []scraper.ScrapedArticle) []m
 			Title:         article.Title,
 			URL:           article.URL,
 			PublishedDate: article.PublishedDate,
-			IsRead:        false,
 		})
 	}
 	return result

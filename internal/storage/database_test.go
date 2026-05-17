@@ -68,7 +68,7 @@ func TestDatabaseCreatesFileAndCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get article: %v", err)
 	}
-	if updated == nil || !updated.IsRead {
+	if updated == nil || updated.ReadAt == nil {
 		t.Fatalf("expected article read: %+v", updated)
 	}
 

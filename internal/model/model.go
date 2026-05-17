@@ -20,7 +20,6 @@ type Article struct {
 	URL            string
 	PublishedDate  *time.Time
 	DiscoveredDate *time.Time
-	IsRead         bool // legacy — kept until Task 9 removes it
 	ReadAt         *time.Time
 }
 
