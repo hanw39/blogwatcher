@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/hanw39/blogwatcher/internal/model"
 	"github.com/hanw39/blogwatcher/internal/opml"
@@ -34,7 +35,7 @@ type ArticleNotFoundError struct {
 func (e ArticleNotFoundError) Error() string {
 	return fmt.Sprintf("Article %d not found", e.ID)
 }
-func AddBlog(db *storage.Database, name string, url string, feedURL string, scrapeSelector string, categoryName string) (model.Blog, error) {
+func AddBlog(db *storage.Database, name string, url string, feedURL string, scrapeSelector string, categoryName string, isEphemeral bool) (model.Blog, error) {
 	if existing, err := db.GetBlogByName(name); err != nil {
 		return model.Blog{}, err
 	} else if existing != nil {
@@ -51,6 +52,7 @@ func AddBlog(db *storage.Database, name string, url string, feedURL string, scra
 		URL:            url,
 		FeedURL:        feedURL,
 		ScrapeSelector: scrapeSelector,
+		IsEphemeral:    isEphemeral,
 	}
 
 	if categoryName != "" {
@@ -76,15 +78,15 @@ func RemoveBlog(db *storage.Database, name string) error {
 	return err
 }
 
-func GetArticles(db *storage.Database, showAll bool, blogName string, categoryName string) ([]model.Article, map[int64]string, error) {
+func GetArticles(db *storage.Database, showAll bool, blogName string, categoryName string) ([]model.Article, map[int64]string, map[int64]bool, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if blog == nil {
-			return nil, nil, BlogNotFoundError{Name: blogName}
+			return nil, nil, nil, BlogNotFoundError{Name: blogName}
 		}
 		blogID = &blog.ID
 	}
@@ -93,46 +95,55 @@ func GetArticles(db *storage.Database, showAll bool, blogName string, categoryNa
 	if categoryName != "" {
 		cat, err := db.GetCategoryByName(categoryName)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if cat == nil {
 			// Unknown category — return empty result, not an error
-			return []model.Article{}, map[int64]string{}, nil
+			return []model.Article{}, map[int64]string{}, map[int64]bool{}, nil
 		}
 		categoryID = &cat.ID
 	}
 
 	articles, err := db.ListArticles(!showAll, blogID, categoryID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	blogs, err := db.ListBlogs(nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	blogNames := make(map[int64]string)
+	blogEphemeral := make(map[int64]bool)
 	for _, blog := range blogs {
 		blogNames[blog.ID] = blog.Name
+		blogEphemeral[blog.ID] = blog.IsEphemeral
 	}
 
-	return articles, blogNames, nil
+	return articles, blogNames, blogEphemeral, nil
 }
 
-func MarkArticleRead(db *storage.Database, articleID int64) (model.Article, error) {
+func MarkArticleRead(db *storage.Database, articleID int64) (model.Article, bool, error) {
 	article, err := db.GetArticle(articleID)
 	if err != nil {
-		return model.Article{}, err
+		return model.Article{}, false, err
 	}
 	if article == nil {
-		return model.Article{}, ArticleNotFoundError{ID: articleID}
+		return model.Article{}, false, ArticleNotFoundError{ID: articleID}
 	}
-	if !article.IsRead {
-		_, err = db.MarkArticleRead(articleID)
-		if err != nil {
-			return model.Article{}, err
+	blog, err := db.GetBlog(article.BlogID)
+	if err != nil {
+		return model.Article{}, false, err
+	}
+	already := blog != nil && model.ArticleIsRead(*article, blog.IsEphemeral, time.Now())
+	if !already {
+		if _, err := db.MarkArticleRead(articleID); err != nil {
+			return model.Article{}, false, err
 		}
+		now := time.Now()
+		article.ReadAt = &now
+		article.IsRead = true
 	}
-	return *article, nil
+	return *article, already, nil
 }
 
 func MarkAllArticlesRead(db *storage.Database, blogName string) ([]model.Article, error) {
@@ -174,7 +185,7 @@ func ImportOPML(db *storage.Database, r io.Reader) (added int, skipped int, err 
 		if siteURL == "" {
 			siteURL = feed.FeedURL
 		}
-		_, err := AddBlog(db, feed.Title, siteURL, feed.FeedURL, "", "")
+		_, err := AddBlog(db, feed.Title, siteURL, feed.FeedURL, "", "", false)
 		if err != nil {
 			var alreadyExists BlogAlreadyExistsError
 			if errors.As(err, &alreadyExists) {
@@ -188,21 +199,27 @@ func ImportOPML(db *storage.Database, r io.Reader) (added int, skipped int, err 
 	return added, skipped, nil
 }
 
-func MarkArticleUnread(db *storage.Database, articleID int64) (model.Article, error) {
+func MarkArticleUnread(db *storage.Database, articleID int64) (model.Article, bool, error) {
 	article, err := db.GetArticle(articleID)
 	if err != nil {
-		return model.Article{}, err
+		return model.Article{}, false, err
 	}
 	if article == nil {
-		return model.Article{}, ArticleNotFoundError{ID: articleID}
+		return model.Article{}, false, ArticleNotFoundError{ID: articleID}
 	}
-	if article.IsRead {
-		_, err = db.MarkArticleUnread(articleID)
-		if err != nil {
-			return model.Article{}, err
+	blog, err := db.GetBlog(article.BlogID)
+	if err != nil {
+		return model.Article{}, false, err
+	}
+	alreadyUnread := !(blog != nil && model.ArticleIsRead(*article, blog.IsEphemeral, time.Now()))
+	if !alreadyUnread {
+		if _, err := db.MarkArticleUnread(articleID); err != nil {
+			return model.Article{}, false, err
 		}
+		article.ReadAt = nil
+		article.IsRead = false
 	}
-	return *article, nil
+	return *article, alreadyUnread, nil
 }
 
 func EditBlogCategory(db *storage.Database, blogName string, categoryName string) (model.Blog, error) {
@@ -224,6 +241,21 @@ func EditBlogCategory(db *storage.Database, blogName string, categoryName string
 		blog.CategoryID = &cat.ID
 	}
 
+	if err := db.UpdateBlog(*blog); err != nil {
+		return model.Blog{}, err
+	}
+	return *blog, nil
+}
+
+func EditBlogEphemeral(db *storage.Database, blogName string, isEphemeral bool) (model.Blog, error) {
+	blog, err := db.GetBlogByName(blogName)
+	if err != nil {
+		return model.Blog{}, err
+	}
+	if blog == nil {
+		return model.Blog{}, BlogNotFoundError{Name: blogName}
+	}
+	blog.IsEphemeral = isEphemeral
 	if err := db.UpdateBlog(*blog); err != nil {
 		return model.Blog{}, err
 	}

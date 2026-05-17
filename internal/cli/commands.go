@@ -34,7 +34,7 @@ func newAddCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector, category)
+			_, err = controller.AddBlog(db, name, url, feedURL, scrapeSelector, category, false)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -239,7 +239,7 @@ func newArticlesCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			articles, blogNames, err := controller.GetArticles(db, showAll, blogName, categoryName)
+			articles, blogNames, _, err := controller.GetArticles(db, showAll, blogName, categoryName)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -286,16 +286,17 @@ func newReadCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			article, err := controller.MarkArticleRead(db, articleID)
+			article, wasAlreadyRead, err := controller.MarkArticleRead(db, articleID)
 			if err != nil {
 				printError(err)
 				return markError(err)
 			}
-			if article.IsRead {
+			if wasAlreadyRead {
 				fmt.Printf("Article %d is already marked as read.\n", articleID)
 			} else {
 				color.New(color.FgGreen).Printf("Marked article %d as read\n", articleID)
 			}
+			_ = article
 			return nil
 		},
 	}
@@ -316,7 +317,7 @@ func newReadAllCommand() *cobra.Command {
 			}
 			defer db.Close()
 
-			articles, blogNames, err := controller.GetArticles(db, false, blogName, "")
+			articles, blogNames, _, err := controller.GetArticles(db, false, blogName, "")
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -463,16 +464,17 @@ func newUnreadCommand() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			article, err := controller.MarkArticleUnread(db, articleID)
+			article, wasAlreadyUnread, err := controller.MarkArticleUnread(db, articleID)
 			if err != nil {
 				printError(err)
 				return markError(err)
 			}
-			if !article.IsRead {
+			if wasAlreadyUnread {
 				fmt.Printf("Article %d is already marked as unread.\n", articleID)
 			} else {
 				color.New(color.FgGreen).Printf("Marked article %d as unread\n", articleID)
 			}
+			_ = article
 			return nil
 		},
 	}

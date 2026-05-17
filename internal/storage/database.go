@@ -486,6 +486,12 @@ func (db *Database) MarkArticleUnread(id int64) (bool, error) {
 	return rows > 0, nil
 }
 
+// Exec runs a raw SQL statement. Exposed for tests that need to manipulate state
+// in ways the public API does not allow (e.g., backdating read_at).
+func (db *Database) Exec(query string, args ...any) (sql.Result, error) {
+	return db.conn.Exec(query, args...)
+}
+
 func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error) {
 	var (
 		id             int64
