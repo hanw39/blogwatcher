@@ -144,14 +144,15 @@ func (db *Database) GetCategoryByName(name string) (*model.Category, error) {
 
 func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {
 	result, err := db.conn.Exec(
-		`INSERT INTO blogs (name, url, feed_url, scrape_selector, last_scanned, category_id)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO blogs (name, url, feed_url, scrape_selector, last_scanned, category_id, is_ephemeral)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		blog.Name,
 		blog.URL,
 		nullIfEmpty(blog.FeedURL),
 		nullIfEmpty(blog.ScrapeSelector),
 		formatTimePtr(blog.LastScanned),
 		nullableInt64(blog.CategoryID),
+		blog.IsEphemeral,
 	)
 	if err != nil {
 		return blog, err
@@ -165,22 +166,22 @@ func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {
 }
 
 func (db *Database) GetBlog(id int64) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE id = ?`, id)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id, is_ephemeral FROM blogs WHERE id = ?`, id)
 	return scanBlog(row)
 }
 
 func (db *Database) GetBlogByName(name string) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE name = ?`, name)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id, is_ephemeral FROM blogs WHERE name = ?`, name)
 	return scanBlog(row)
 }
 
 func (db *Database) GetBlogByURL(url string) (*model.Blog, error) {
-	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE url = ?`, url)
+	row := db.conn.QueryRow(`SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id, is_ephemeral FROM blogs WHERE url = ?`, url)
 	return scanBlog(row)
 }
 
 func (db *Database) ListBlogs(categoryID *int64) ([]model.Blog, error) {
-	query := `SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id FROM blogs WHERE 1=1`
+	query := `SELECT id, name, url, feed_url, scrape_selector, last_scanned, category_id, is_ephemeral FROM blogs WHERE 1=1`
 	var args []interface{}
 	if categoryID != nil {
 		query += " AND category_id = ?"
@@ -233,13 +234,14 @@ func (db *Database) ListCategories() ([]model.Category, error) {
 
 func (db *Database) UpdateBlog(blog model.Blog) error {
 	_, err := db.conn.Exec(
-		`UPDATE blogs SET name = ?, url = ?, feed_url = ?, scrape_selector = ?, last_scanned = ?, category_id = ? WHERE id = ?`,
+		`UPDATE blogs SET name = ?, url = ?, feed_url = ?, scrape_selector = ?, last_scanned = ?, category_id = ?, is_ephemeral = ? WHERE id = ?`,
 		blog.Name,
 		blog.URL,
 		nullIfEmpty(blog.FeedURL),
 		nullIfEmpty(blog.ScrapeSelector),
 		formatTimePtr(blog.LastScanned),
 		nullableInt64(blog.CategoryID),
+		blog.IsEphemeral,
 		blog.ID,
 	)
 	return err
@@ -324,12 +326,12 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 }
 
 func (db *Database) GetArticle(id int64) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read FROM articles WHERE id = ?`, id)
+	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, read_at FROM articles WHERE id = ?`, id)
 	return scanArticle(row)
 }
 
 func (db *Database) GetArticleByURL(url string) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read FROM articles WHERE url = ?`, url)
+	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, read_at FROM articles WHERE url = ?`, url)
 	return scanArticle(row)
 }
 
@@ -383,7 +385,7 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 }
 
 func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int64) ([]model.Article, error) {
-	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.is_read FROM articles a`
+	query := `SELECT a.id, a.blog_id, a.title, a.url, a.published_date, a.discovered_date, a.is_read, a.read_at FROM articles a`
 	if categoryID != nil {
 		query += ` JOIN blogs b ON a.blog_id = b.id`
 	}
@@ -422,7 +424,7 @@ func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int
 }
 
 func (db *Database) MarkArticleRead(id int64) (bool, error) {
-	result, err := db.conn.Exec(`UPDATE articles SET is_read = 1 WHERE id = ?`, id)
+	result, err := db.conn.Exec(`UPDATE articles SET is_read = 1, read_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
 	if err != nil {
 		return false, err
 	}
@@ -434,7 +436,7 @@ func (db *Database) MarkArticleRead(id int64) (bool, error) {
 }
 
 func (db *Database) MarkArticleUnread(id int64) (bool, error) {
-	result, err := db.conn.Exec(`UPDATE articles SET is_read = 0 WHERE id = ?`, id)
+	result, err := db.conn.Exec(`UPDATE articles SET is_read = 0, read_at = NULL WHERE id = ?`, id)
 	if err != nil {
 		return false, err
 	}
@@ -454,8 +456,9 @@ func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error)
 		scrapeSelector sql.NullString
 		lastScanned    sql.NullString
 		categoryID     sql.NullInt64
+		isEphemeral    bool
 	)
-	if err := scanner.Scan(&id, &name, &url, &feedURL, &scrapeSelector, &lastScanned, &categoryID); err != nil {
+	if err := scanner.Scan(&id, &name, &url, &feedURL, &scrapeSelector, &lastScanned, &categoryID, &isEphemeral); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -468,6 +471,7 @@ func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error)
 		URL:            url,
 		FeedURL:        feedURL.String,
 		ScrapeSelector: scrapeSelector.String,
+		IsEphemeral:    isEphemeral,
 	}
 	if lastScanned.Valid {
 		if parsed, err := parseTime(lastScanned.String); err == nil {
@@ -489,8 +493,9 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 		publishedDate sql.NullString
 		discovered    sql.NullString
 		isRead        bool
+		readAt        sql.NullString
 	)
-	if err := scanner.Scan(&id, &blogID, &title, &url, &publishedDate, &discovered, &isRead); err != nil {
+	if err := scanner.Scan(&id, &blogID, &title, &url, &publishedDate, &discovered, &isRead, &readAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -512,6 +517,11 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 	if discovered.Valid {
 		if parsed, err := parseTime(discovered.String); err == nil {
 			article.DiscoveredDate = &parsed
+		}
+	}
+	if readAt.Valid {
+		if parsed, err := parseTime(readAt.String); err == nil {
+			article.ReadAt = &parsed
 		}
 	}
 

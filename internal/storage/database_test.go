@@ -589,6 +589,79 @@ func TestLookupHelpers(t *testing.T) {
 	}
 }
 
+func TestBlogIsEphemeralRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Trending", URL: "https://example.com/trending", IsEphemeral: true})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	fetched, err := db.GetBlog(blog.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("get blog: %v %v", fetched, err)
+	}
+	if !fetched.IsEphemeral {
+		t.Fatalf("expected IsEphemeral true, got false")
+	}
+
+	fetched.IsEphemeral = false
+	if err := db.UpdateBlog(*fetched); err != nil {
+		t.Fatalf("update blog: %v", err)
+	}
+	again, err := db.GetBlog(blog.ID)
+	if err != nil || again.IsEphemeral {
+		t.Fatalf("expected IsEphemeral false after update, got %+v %v", again, err)
+	}
+}
+
+func TestArticleReadAtRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "T", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	if _, err := db.MarkArticleRead(article.ID); err != nil {
+		t.Fatalf("mark read: %v", err)
+	}
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("get article: %v %v", fetched, err)
+	}
+	if fetched.ReadAt == nil {
+		t.Fatalf("expected ReadAt set after MarkArticleRead")
+	}
+
+	if _, err := db.MarkArticleUnread(article.ID); err != nil {
+		t.Fatalf("mark unread: %v", err)
+	}
+	fetched, err = db.GetArticle(article.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("get article 2: %v %v", fetched, err)
+	}
+	if fetched.ReadAt != nil {
+		t.Fatalf("expected ReadAt nil after MarkArticleUnread")
+	}
+}
+
 func TestMigrationBackfillsReadAt(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "blogwatcher.db")
