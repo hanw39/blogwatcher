@@ -109,8 +109,8 @@ func TestGetExistingArticleURLs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get existing: %v", err)
 	}
-	if _, ok := existing["https://example.com/1"]; !ok {
-		t.Fatalf("expected existing url")
+	if got, ok := existing["https://example.com/1"]; !ok || got.ID == 0 {
+		t.Fatalf("expected existing url with ID")
 	}
 	if _, ok := existing["https://example.com/2"]; ok {
 		t.Fatalf("did not expect url")
@@ -705,6 +705,87 @@ func TestMigrationBackfillsReadAt(t *testing.T) {
 	}
 	if !readAt.Valid {
 		t.Fatalf("expected read_at to be backfilled, got NULL")
+	}
+}
+
+func TestGetExistingArticleURLsReturnsDiscoveredDate(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	discoveredAt := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	_, err = db.AddArticle(model.Article{BlogID: blog.ID, Title: "One", URL: "https://example.com/1", DiscoveredDate: &discoveredAt})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	existing, err := db.GetExistingArticleURLs([]string{"https://example.com/1", "https://example.com/2"})
+	if err != nil {
+		t.Fatalf("get existing: %v", err)
+	}
+	got, ok := existing["https://example.com/1"]
+	if !ok {
+		t.Fatalf("expected existing url to be returned")
+	}
+	if got.ID == 0 {
+		t.Fatalf("expected ID populated")
+	}
+	if got.DiscoveredDate == nil || !got.DiscoveredDate.Equal(discoveredAt) {
+		t.Fatalf("expected DiscoveredDate %v, got %v", discoveredAt, got.DiscoveredDate)
+	}
+	if _, ok := existing["https://example.com/2"]; ok {
+		t.Fatalf("did not expect missing URL to appear")
+	}
+}
+
+func TestTouchArticlesBulk(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	old := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	a, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "A", URL: "https://example.com/a", DiscoveredDate: &old})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	b, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "B", URL: "https://example.com/b", DiscoveredDate: &old})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	newTime := time.Date(2026, 5, 17, 9, 0, 0, 0, time.UTC)
+	if err := db.TouchArticlesBulk([]int64{a.ID}, newTime); err != nil {
+		t.Fatalf("touch bulk: %v", err)
+	}
+
+	fetchedA, _ := db.GetArticle(a.ID)
+	fetchedB, _ := db.GetArticle(b.ID)
+	if fetchedA.DiscoveredDate == nil || !fetchedA.DiscoveredDate.Equal(newTime) {
+		t.Fatalf("expected A DiscoveredDate updated, got %v", fetchedA.DiscoveredDate)
+	}
+	if fetchedB.DiscoveredDate == nil || !fetchedB.DiscoveredDate.Equal(old) {
+		t.Fatalf("expected B DiscoveredDate unchanged, got %v", fetchedB.DiscoveredDate)
+	}
+
+	// Empty input is a no-op.
+	if err := db.TouchArticlesBulk(nil, newTime); err != nil {
+		t.Fatalf("touch bulk empty: %v", err)
 	}
 }
 

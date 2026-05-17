@@ -348,8 +348,13 @@ func (db *Database) ArticleExists(url string) (bool, error) {
 	}
 }
 
-func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, error) {
-	result := make(map[string]struct{})
+type ExistingArticle struct {
+	ID             int64
+	DiscoveredDate *time.Time
+}
+
+func (db *Database) GetExistingArticleURLs(urls []string) (map[string]ExistingArticle, error) {
+	result := make(map[string]ExistingArticle)
 	if len(urls) == 0 {
 		return result, nil
 	}
@@ -362,18 +367,28 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 		}
 		chunk := urls[start:end]
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
-		query := fmt.Sprintf("SELECT url FROM articles WHERE url IN (%s)", placeholders)
+		query := fmt.Sprintf("SELECT id, url, discovered_date FROM articles WHERE url IN (%s)", placeholders)
 		rows, err := db.conn.Query(query, interfaceSlice(chunk)...)
 		if err != nil {
 			return nil, err
 		}
 		for rows.Next() {
-			var url string
-			if err := rows.Scan(&url); err != nil {
+			var (
+				id         int64
+				url        string
+				discovered sql.NullString
+			)
+			if err := rows.Scan(&id, &url, &discovered); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			result[url] = struct{}{}
+			entry := ExistingArticle{ID: id}
+			if discovered.Valid {
+				if parsed, err := parseTime(discovered.String); err == nil {
+					entry.DiscoveredDate = &parsed
+				}
+			}
+			result[url] = entry
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -382,6 +397,31 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 		rows.Close()
 	}
 	return result, nil
+}
+
+func (db *Database) TouchArticlesBulk(ids []int64, ts time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`UPDATE articles SET discovered_date = ? WHERE id = ?`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+
+	formatted := ts.Format(sqliteTimeLayout)
+	for _, id := range ids {
+		if _, err := stmt.Exec(formatted, id); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (db *Database) ListArticles(unreadOnly bool, blogID *int64, categoryID *int64) ([]model.Article, error) {
