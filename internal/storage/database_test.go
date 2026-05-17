@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -585,5 +586,51 @@ func TestLookupHelpers(t *testing.T) {
 	}
 	if exists, err := db.ArticleExists("https://example.com/missing"); err != nil || exists {
 		t.Fatalf("expected missing article to not exist")
+	}
+}
+
+func TestMigrationBackfillsReadAt(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	// Insert an article and mark it read using the LEGACY path, then verify migration backfills read_at.
+	discoveredAt := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	article, err := db.AddArticle(model.Article{
+		BlogID:         blog.ID,
+		Title:          "Old",
+		URL:            "https://example.com/old",
+		DiscoveredDate: &discoveredAt,
+	})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	// Simulate legacy state: is_read=1, read_at=NULL.
+	if _, err := db.conn.Exec(`UPDATE articles SET is_read = 1, read_at = NULL WHERE id = ?`, article.ID); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+
+	// Re-run init to exercise the migration step.
+	if err := db.init(); err != nil {
+		t.Fatalf("re-init: %v", err)
+	}
+
+	row := db.conn.QueryRow(`SELECT read_at FROM articles WHERE id = ?`, article.ID)
+	var readAt sql.NullString
+	if err := row.Scan(&readAt); err != nil {
+		t.Fatalf("scan read_at: %v", err)
+	}
+	if !readAt.Valid {
+		t.Fatalf("expected read_at to be backfilled, got NULL")
 	}
 }

@@ -92,14 +92,26 @@ func (db *Database) init() error {
 			FOREIGN KEY (blog_id) REFERENCES blogs(id)
 		);
 	`
-	_, err := db.conn.Exec(schema)
-	if err != nil {
+	if _, err := db.conn.Exec(schema); err != nil {
 		return err
 	}
 
-	// Migration: add category_id to existing databases
-	_, err = db.conn.Exec(`ALTER TABLE blogs ADD COLUMN category_id INTEGER REFERENCES categories(id)`)
-	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+	// Idempotent column additions. SQLite errors with "duplicate column name" if already present.
+	migrations := []string{
+		`ALTER TABLE blogs    ADD COLUMN category_id   INTEGER REFERENCES categories(id)`,
+		`ALTER TABLE blogs    ADD COLUMN is_ephemeral  BOOLEAN DEFAULT 0`,
+		`ALTER TABLE articles ADD COLUMN read_at       TIMESTAMP`,
+	}
+	for _, stmt := range migrations {
+		if _, err := db.conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return err
+		}
+	}
+
+	// Backfill read_at from legacy is_read once. Safe to re-run: only touches rows where read_at is still NULL.
+	if _, err := db.conn.Exec(
+		`UPDATE articles SET read_at = COALESCE(discovered_date, CURRENT_TIMESTAMP) WHERE is_read = 1 AND read_at IS NULL`,
+	); err != nil {
 		return err
 	}
 	return nil
